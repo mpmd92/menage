@@ -1,0 +1,9 @@
+.dev.vars
+.wrangler/
+node_modules/
+.DS_Store
+.claude/
+test-local.html
+# Ancienne version locale, remplacée par index.html (en ligne)
+Ménage.html
+celebration.gif

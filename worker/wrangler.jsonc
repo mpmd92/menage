@@ -1,0 +1,12 @@
+{
+  // Shared storage for the Ménage list. The password hash is the PASSWORD_HASH secret
+  // (wrangler secret put PASSWORD_HASH), never written here.
+  "name": "menage",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "STORE", "class_name": "MenageStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MenageStore"] }],
+  "observability": { "enabled": true }
+}

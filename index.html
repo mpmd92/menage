@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="only light">
+<title>Ménage</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15.5L16 5l12 10.5M8 12.5V27h16V12.5' fill='none' stroke='%233E9B5F' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: title + view tabs; one column per person (both side by side in the overall view),
+     four fixed sub-lists per person (weekly, monthly, every 3 months, yearly); actions row. */
+  /* Palette: same as Habits. White chocolate ground, dark green ink and controls, yellow for finished states. */
+  :root {
+    --bg: #F2EADB;
+    --surface: #FBF7EF;
+    --ink: #173A27;
+    --muted: #55655A;
+    --line: #E3D7C1;
+    --accent: #1F5136;
+    --accent-ink: #F4D03F;
+    --accent-soft: #F6E7A8;
+    --on-accent: #FBF7EF;
+    --yellow: #F2C94C;
+    --on-yellow: #173A27;
+    --danger: #A63D2A;
+    --toast-bg: #173A27;
+    --toast-fg: #F2EADB;
+    --toast-link: #F2C94C;
+    --scrim: rgb(23 58 39 / .45);
+    --f-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
+    --f-body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.45;
+    padding-inline: 16px;
+    padding-block: 40px 104px;
+  }
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
+  .app { max-width: 34rem; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+  .app.is-wide { max-width: 72rem; }
+
+  /* Header: title and view tabs */
+  .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+  h1 { font-family: var(--f-display); font-weight: 700; font-size: 1.8rem; letter-spacing: -.02em; line-height: 1.1; margin: 0; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .tab {
+    font: inherit; font-size: .92rem; font-weight: 600; color: var(--muted); cursor: pointer;
+    padding: 7px 14px; border: 0; border-radius: 8px; background: none; transition: background-color .15s, color .15s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* People columns */
+  .cols { display: grid; gap: 32px 28px; }
+  .app.is-wide .cols { grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); align-items: start; }
+  .person { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .person-name { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 1.35rem; letter-spacing: -.01em; }
+  .app:not(.is-wide) .person-name { display: none; }
+
+  /* Sub-lists */
+  .sub { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .sub-head { display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 16px; border-bottom: 1px solid var(--line); }
+  .sub-name { flex: 1; min-width: 0; margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
+  .sub-count {
+    flex: none; font-family: var(--f-mono); font-weight: 500; font-size: .76rem; font-variant-numeric: tabular-nums;
+    color: var(--muted); padding: 2px 8px; border-radius: 999px; transition: color .2s, background-color .2s;
+  }
+  .sub-count:empty { display: none; }
+  .sub-count.is-full { color: var(--on-yellow); background: var(--yellow); }
+  .sub-cycles {
+    flex: none; font-size: .68rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); padding: 3px 8px; border-radius: 999px; font-variant-numeric: tabular-nums;
+    transition: color .3s, background-color .3s;
+  }
+  .sub-cycles:empty { display: none; }
+  .sub-cycles.bump { color: var(--on-yellow); background: var(--yellow); animation: pop .5s ease-out; }
+
+  /* Tasks */
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list:empty { display: none; }
+  body.dragging-item .list:empty { display: block; min-height: 46px; outline: 1.5px dashed var(--line); outline-offset: -8px; }
+  .item { position: relative; display: flex; align-items: center; border-top: 1px solid var(--line); transition: background-color .3s; }
+  .item:first-child { border-top: 0; }
+  .item.dragging { opacity: .4; }
+  .item-grip { position: absolute; left: 3px; top: 50%; transform: translateY(-50%); color: var(--muted); opacity: 0; cursor: grab; display: grid; }
+  .item:hover .item-grip { opacity: .6; }
+  .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 11px 8px 11px 16px; cursor: pointer; }
+  .check {
+    appearance: none; -webkit-appearance: none; margin: 0; flex: none; cursor: pointer;
+    width: 22px; height: 22px; border: 2px solid var(--muted); border-radius: 7px;
+    display: grid; place-items: center; background: var(--surface);
+    transition: background-color .2s, border-color .2s;
+  }
+  .check::before {
+    content: ""; width: 6px; height: 11px;
+    border: solid var(--accent-ink); border-width: 0 2.5px 2.5px 0;
+    transform: translateY(-1px) rotate(45deg) scale(0);
+    transition: transform .2s cubic-bezier(.3,1.5,.5,1);
+  }
+  .check:checked { background: var(--accent); border-color: var(--accent); }
+  .check:checked::before { transform: translateY(-1px) rotate(45deg) scale(1); }
+  .check:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .text { overflow-wrap: anywhere; transition: color .2s; }
+  .check:checked + .txt .text { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+  .last { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .last.never { font-style: italic; }
+  .last.late { color: var(--danger); }
+  .del, .edit {
+    flex: none; width: 38px; height: 38px; border: 0; border-radius: 8px;
+    background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; opacity: 0;
+    transition: opacity .15s, color .15s, background-color .15s;
+  }
+  .del { margin-right: 6px; }
+  .item:hover .del, .item:hover .edit, .del:focus-visible, .edit:focus-visible { opacity: 1; }
+  .del:hover { color: var(--danger); background: var(--bg); }
+  .edit:hover { color: var(--ink); background: var(--bg); }
+  .del:focus-visible, .edit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (hover: none) { .del, .edit { opacity: .75; } }
+  /* Editing a task's text in place */
+  .item.editing .txt, .item.editing .edit, .item.editing .del, .item.editing .item-grip { display: none; }
+  .item.editing .row { flex: none; padding-right: 14px; }
+  .edit-input {
+    flex: 1; min-width: 0; margin: 6px 12px 6px 0; padding: 6px 10px;
+    font: inherit; color: var(--ink); background: var(--surface);
+    border: 1.5px solid var(--accent); border-radius: 8px; box-shadow: 0 0 0 3px var(--accent-soft); outline: none;
+  }
+  .sub.complete .item { background: var(--accent-soft); }
+  .sub.resetting .check,
+  .sub.resetting .check::before { transition-delay: calc(var(--i, 0) * 40ms); }
+
+  /* Add a task inside a sub-list */
+  .sub-add { display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); }
+  .list:empty + .sub-add { border-top: 0; }
+  body.dragging-item .list:empty + .sub-add { border-top: 1px solid var(--line); }
+  .sub-add .plus { width: 22px; flex: none; text-align: center; color: var(--muted); font-size: 1.25rem; line-height: 1; }
+  .sub-add input { flex: 1; min-width: 0; font: inherit; color: var(--ink); background: transparent; border: 0; padding: 11px 0; }
+  .sub-add input::placeholder { color: var(--muted); }
+  .sub-add input:focus { outline: none; }
+  .sub-add:focus-within { box-shadow: inset 3px 0 0 var(--accent); }
+
+  /* Actions row */
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .list-actions, .file-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  .file-actions { margin-left: auto; }
+  .ghost {
+    font: inherit; font-size: .88rem; font-weight: 500; color: var(--accent);
+    background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+  }
+  .ghost.quiet { color: var(--muted); }
+  .ghost.quiet:hover { color: var(--ink); }
+  .ghost.is-armed, .ghost.is-armed:hover { color: var(--danger); font-weight: 600; }
+  .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .status { margin: 0; font-size: .85rem; color: var(--danger); }
+  .autosave { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: .85rem; color: var(--muted); }
+  .autosave span { min-width: 0; overflow-wrap: anywhere; }
+
+  /* Toast */
+  .toast {
+    position: fixed; z-index: 5; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 12px); opacity: 0; transition: opacity .2s, transform .2s;
+    display: flex; align-items: center; gap: 16px; max-width: calc(100% - 32px);
+    padding: 10px 16px; border-radius: 12px;
+    background: var(--toast-bg); color: var(--toast-fg); font-size: .92rem;
+    box-shadow: 0 8px 24px rgb(0 0 0 / .18);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast span { min-width: 0; overflow-wrap: anywhere; }
+  .toast button {
+    flex: none; font: inherit; font-weight: 600; color: var(--toast-link);
+    background: none; border: 0; padding: 6px 8px; margin: -6px -8px -6px 0; border-radius: 6px; cursor: pointer;
+  }
+  .toast button:focus-visible { outline: 2px solid var(--toast-link); }
+
+  /* The GIF alone, shown when a sub-list is finished */
+  .party {
+    position: fixed; inset: 0; z-index: 4; display: grid; place-items: center; padding: 16px;
+    background: var(--scrim); opacity: 0; transition: opacity .25s; cursor: pointer;
+  }
+  .party.show { opacity: 1; }
+  .party-card { max-width: 100%; transform: scale(.92); transition: transform .35s cubic-bezier(.3,1.4,.5,1); }
+  .party.show .party-card { transform: scale(1); }
+  .party-card img {
+    display: block; width: min(300px, calc(100vw - 32px)); height: auto;
+    border-radius: 14px; background: var(--line); box-shadow: 0 20px 60px rgb(0 0 0 / .3);
+  }
+
+  /* Password screen, shown once per device */
+  .gate { position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+  .gate-card {
+    width: min(22rem, 100%); display: flex; flex-direction: column; gap: 10px; padding: 28px 24px 24px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 12px 40px rgb(23 58 39 / .08);
+  }
+  .gate-card h1 { margin-bottom: 8px; }
+  .gate-card label { font-size: .85rem; font-weight: 600; color: var(--muted); }
+  .gate-card input {
+    font: inherit; color: var(--ink); padding: 11px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface);
+  }
+  .gate-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .gate-card button {
+    margin-top: 6px; font: inherit; font-weight: 600; padding: 11px 16px; border: 0; border-radius: 10px;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
+  }
+  .gate-card button:disabled { opacity: .6; cursor: progress; }
+  .gate-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .gate-error { margin: 0; font-size: .88rem; color: var(--danger); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before { transition-duration: 0s !important; transition-delay: 0s !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<main class="app" id="app" hidden>
+  <header class="head">
+    <h1>Ménage</h1>
+    <div class="tabs" role="group" aria-label="Affichage">
+      <button type="button" class="tab" data-view="paul" aria-pressed="true">Paul</button>
+      <button type="button" class="tab" data-view="marguerite" aria-pressed="false">Marguerite</button>
+      <button type="button" class="tab" data-view="all" aria-pressed="false">Vue globale</button>
+    </div>
+    <p class="sr-only" id="announce" aria-live="polite"></p>
+  </header>
+
+  <div class="cols" id="cols"></div>
+
+  <div class="tools">
+    <div class="list-actions">
+      <button type="button" class="ghost quiet" id="resetBtn">Réinitialiser tout</button>
+      <button type="button" class="ghost quiet" id="lockBtn">Verrouiller cet appareil</button>
+    </div>
+    <div class="file-actions">
+      <button type="button" class="ghost quiet" id="saveBtn">Sauvegarder la liste</button>
+      <button type="button" class="ghost quiet" id="loadBtn">Charger une sauvegarde</button>
+      <input type="file" id="loadFile" accept=".txt,.md,text/plain" hidden>
+    </div>
+  </div>
+
+  <p class="autosave" id="autosave" hidden>
+    <span id="autoText"></span>
+    <button type="button" class="ghost quiet" id="autoPick">Choisir un fichier</button>
+    <button type="button" class="ghost quiet" id="autoOff" hidden>Désactiver</button>
+  </p>
+
+  <p class="status" id="status" role="status" hidden></p>
+</main>
+
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gateForm">
+    <h1>Ménage</h1>
+    <label for="gatePw">Mot de passe</label>
+    <input id="gatePw" type="password" autocomplete="current-password" required>
+    <p class="gate-error" id="gateError" hidden></p>
+    <button type="submit" id="gateBtn">Ouvrir</button>
+  </form>
+</div>
+
+<div class="party" id="party" hidden>
+  <div class="party-card">
+    <img id="partyGif" alt="">
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" hidden>
+  <span id="toastText"></span>
+  <button type="button" id="toastUndo">Annuler</button>
+</div>
+
+<script>
+(() => {
+  // The list lives on a Cloudflare Worker (see worker/), shared by Paul and Marguerite.
+  // Each device remembers the password and keeps a copy of the last list it received.
+  const API_URL = "https://menage.mpmd92.workers.dev";
+  const PW_KEY = "menage:pw";
+  const CACHE_KEY = "menage:cache";
+  const VIEW_KEY = "menage:view";
+  const POLL_MS = 15000;
+  const MAX_ITEMS = 1000;
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const PEOPLE = [{ id: "paul", name: "Paul" }, { id: "marguerite", name: "Marguerite" }];
+  // `days`: past this many days since the last time, the date shows in red.
+  const FREQS = [
+    { id: "hebdo", name: "Hebdomadaire", days: 7 },
+    { id: "mois", name: "Mensuelle", days: 31 },
+    { id: "trimestre", name: "Tous les 3 mois", days: 92 },
+    { id: "an", name: "Tous les ans", days: 366 },
+  ];
+  const KEYS = PEOPLE.flatMap((p) => FREQS.map((f) => `${p.id}:${f.id}`));
+  const keyInfo = (key) => {
+    const [pid, fid] = key.split(":");
+    return { person: PEOPLE.find((p) => p.id === pid), freq: FREQS.find((f) => f.id === fid) };
+  };
+  const subLabel = (key) => { const { person, freq } = keyInfo(key); return `${person.name} · ${freq.name}`; };
+
+  const GRIP_SVG = '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" fill="currentColor"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
+  const PEN_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 13h2.4L12.8 5.6a1.4 1.4 0 0 0 0-2L12.4 3.2a1.4 1.4 0 0 0-2 0L3 10.6V13zM9.4 4.2l2.4 2.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></path></svg>';
+  const X_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    app: $("app"), cols: $("cols"), tabs: [...document.querySelectorAll(".tab")], announce: $("announce"),
+    reset: $("resetBtn"), lock: $("lockBtn"), save: $("saveBtn"), load: $("loadBtn"), file: $("loadFile"),
+    gate: $("gate"), gateForm: $("gateForm"), gatePw: $("gatePw"), gateError: $("gateError"), gateBtn: $("gateBtn"),
+    status: $("status"), toast: $("toast"), toastText: $("toastText"), toastUndo: $("toastUndo"),
+    party: $("party"), partyGif: $("partyGif"),
+    autosave: $("autosave"), autoText: $("autoText"), autoPick: $("autoPick"), autoOff: $("autoOff"),
+  };
+
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const short = (t) => (t.length > 40 ? t.slice(0, 39) + "…" : t);
+  const pad = (n) => String(n).padStart(2, "0");
+  const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  const allItems = (s) => KEYS.flatMap((k) => s.lists[k].items);
+  const subEl = (key) => els.cols.querySelector(`.sub[data-key="${key}"]`);
+
+  /* ---------- Storage ---------- */
+
+  function sanitize(raw) {
+    const seen = new Set();
+    const okId = (id) => {
+      const v = typeof id === "string" && /^[a-z0-9]{1,40}$/i.test(id) && !seen.has(id) ? id : newId();
+      seen.add(v);
+      return v;
+    };
+    const okDate = (v) => (typeof v === "string" && !isNaN(Date.parse(v)) ? new Date(v).toISOString() : null);
+    const lists = {};
+    for (const k of KEYS) {
+      const r = raw && raw.lists && raw.lists[k];
+      const items = (r && Array.isArray(r.items) ? r.items : [])
+        .filter((i) => i && typeof i.text === "string")
+        .map((i) => {
+          const it = { id: okId(i.id), text: i.text.slice(0, 200), done: !!i.done, lastDone: okDate(i.lastDone) };
+          if (it.done && "prevLast" in i) it.prevLast = okDate(i.prevLast);
+          return it;
+        });
+      lists[k] = { items, cycles: r && Number.isInteger(r.cycles) && r.cycles > 0 ? r.cycles : 0 };
+    }
+    return { lists };
+  }
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  let password = store.get(PW_KEY);
+  // `server` is the last list the Worker confirmed; `pending` holds local changes not yet sent.
+  // The list on screen is `server` with `pending` replayed on top.
+  let server = { version: 0, data: sanitize(null) };
+  try {
+    const cached = JSON.parse(store.get(CACHE_KEY) || "null");
+    if (password && cached && Number.isInteger(cached.version)) server = { version: cached.version, data: sanitize(cached.data) };
+  } catch {}
+  let pending = [];
+  let state = clone(server.data);
+  let celebrating = false, celebrateTimer = null, pendingReset = new Set();
+  const shownCycles = {};
+  const saveCache = () => store.set(CACHE_KEY, JSON.stringify(server));
+
+  /* ---------- Dates ---------- */
+
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const daysSince = (d) => Math.round((dayStart(new Date()) - dayStart(d)) / 86400000);
+  function agoLabel(days) {
+    if (days <= 0) return "aujourd'hui";
+    if (days === 1) return "hier";
+    if (days < 14) return `il y a ${days} j`;
+    if (days < 60) return `il y a ${Math.round(days / 7)} sem.`;
+    if (days < 365) return `il y a ${Math.round(days / 30.4)} mois`;
+    const y = Math.floor(days / 365);
+    return `il y a ${y} an${y > 1 ? "s" : ""}`;
+  }
+  function dateLabel(d) {
+    const opts = { day: "numeric", month: "short" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString("fr-FR", opts);
+  }
+  function lastInfo(item, freq) {
+    if (!item.lastDone) return { text: "Jamais fait", never: true, late: false, title: "" };
+    const d = new Date(item.lastDone);
+    const days = daysSince(d);
+    return {
+      text: `Dernière fois : ${dateLabel(d)} · ${agoLabel(days)}`,
+      never: false,
+      late: days > freq.days,
+      title: d.toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" }),
+    };
+  }
+
+  /* ---------- Rendering ---------- */
+
+  function buildColumns() {
+    for (const p of PEOPLE) {
+      const col = document.createElement("section");
+      col.className = "person";
+      col.dataset.person = p.id;
+      col.innerHTML = `<h2 class="person-name">${p.name}</h2>` + FREQS.map((f) =>
+        `<section class="sub" data-key="${p.id}:${f.id}">` +
+          '<header class="sub-head">' +
+            `<h3 class="sub-name">${f.name}</h3>` +
+            '<span class="sub-count"></span>' +
+            '<span class="sub-cycles"></span>' +
+          '</header>' +
+          '<ul class="list"></ul>' +
+          '<form class="sub-add" autocomplete="off">' +
+            '<span class="plus" aria-hidden="true">+</span>' +
+            `<input id="add-${p.id}-${f.id}" type="text" maxlength="200" placeholder="Ajouter une tâche…" aria-label="Ajouter une tâche à ${p.name}, ${f.name.toLowerCase()}">` +
+          '</form>' +
+        '</section>').join("");
+      els.cols.append(col);
+    }
+  }
+
+  function makeItem(id) {
+    const li = document.createElement("li");
+    li.className = "item";
+    li.dataset.id = id;
+    li.draggable = true;
+    li.innerHTML =
+      `<span class="item-grip" aria-hidden="true">${GRIP_SVG}</span>` +
+      '<label class="row"><input type="checkbox" class="check"><span class="txt"><span class="text"></span><span class="last"></span></span></label>' +
+      `<button type="button" class="edit">${PEN_SVG}</button>` +
+      `<button type="button" class="del">${X_SVG}</button>`;
+    return li;
+  }
+
+  function render(opts) { if (!celebrating) paint(state, opts); }
+
+  function paint(view, { complete = new Set(), resetting = new Set() } = {}) {
+    const ids = new Set(allItems(view).map((i) => i.id));
+    const itemEls = new Map();
+    els.cols.querySelectorAll(".item").forEach((li) => {
+      if (ids.has(li.dataset.id)) itemEls.set(li.dataset.id, li); else li.remove();
+    });
+
+    for (const key of KEYS) {
+      const { freq } = keyInfo(key);
+      const L = view.lists[key];
+      const sec = subEl(key);
+      const list = sec.querySelector(".list");
+      L.items.forEach((item, i) => {
+        const li = itemEls.get(item.id) || makeItem(item.id);
+        li.style.setProperty("--i", i);
+        li.querySelector(".check").checked = item.done;
+        li.querySelector(".text").textContent = item.text;
+        const last = li.querySelector(".last");
+        last.hidden = item.done;
+        if (!item.done) {
+          const info = lastInfo(item, freq);
+          last.textContent = info.text;
+          last.title = info.title;
+          last.classList.toggle("never", info.never);
+          last.classList.toggle("late", info.late);
+        }
+        li.querySelector(".edit").setAttribute("aria-label", `Modifier « ${item.text} »`);
+        li.querySelector(".del").setAttribute("aria-label", `Supprimer « ${item.text} »`);
+        if (list.children[i] !== li) list.insertBefore(li, list.children[i] || null);
+      });
+
+      const n = L.items.length, d = L.items.filter((i) => i.done).length;
+      const count = sec.querySelector(".sub-count");
+      count.textContent = n ? `${d}/${n}` : "";
+      count.classList.toggle("is-full", n > 0 && d === n);
+
+      const cyc = sec.querySelector(".sub-cycles");
+      cyc.textContent = n || L.cycles ? plural(L.cycles, "cycle") : "";
+      cyc.title = "Nombre de fois où cette liste a été entièrement cochée";
+      if (shownCycles[key] !== undefined && L.cycles > shownCycles[key]) {
+        cyc.classList.remove("bump");
+        void cyc.offsetWidth; // restart the animation
+        cyc.classList.add("bump");
+        setTimeout(() => cyc.classList.remove("bump"), 1200);
+      }
+      shownCycles[key] = L.cycles;
+
+      sec.classList.toggle("complete", complete.has(key));
+      if (resetting.has(key)) {
+        sec.classList.add("resetting");
+        setTimeout(() => sec.classList.remove("resetting"), 500 + n * 40);
+      }
+    }
+    els.announce.textContent = complete.size
+      ? `Liste terminée : ${[...complete].map(subLabel).join(", ")}. Elle repart à zéro.`
+      : "";
+  }
+
+  /* ---------- Views ---------- */
+
+  let viewName = store.get(VIEW_KEY) || "paul";
+  function applyView() {
+    if (!["paul", "marguerite", "all"].includes(viewName)) viewName = "paul";
+    els.tabs.forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.view === viewName)));
+    els.app.classList.toggle("is-wide", viewName === "all");
+    els.cols.querySelectorAll(".person").forEach((col) => {
+      col.hidden = viewName !== "all" && col.dataset.person !== viewName;
+    });
+  }
+  els.tabs.forEach((t) => t.addEventListener("click", () => {
+    viewName = t.dataset.view;
+    store.set(VIEW_KEY, viewName);
+    applyView();
+  }));
+
+  /* ---------- State changes ---------- */
+
+  // A sub-list whose tasks are all checked unchecks and counts one cycle;
+  // each task keeps the date it was last done.
+  const completedKeys = (s) => KEYS.filter((k) => {
+    const its = s.lists[k].items;
+    return its.length > 0 && its.every((i) => i.done);
+  });
+  function resetKeys(s, keys) {
+    for (const k of keys) {
+      s.lists[k].items.forEach((i) => { i.done = false; delete i.prevLast; });
+      s.lists[k].cycles += 1;
+    }
+  }
+  // Replays changes on top of a list, as `change` did, so they survive someone else's edit.
+  function replay(base, ops) {
+    const s = clone(base);
+    for (const op of ops) { op(s); resetKeys(s, completedKeys(s)); }
+    return s;
+  }
+
+  // Every change goes through here. `mutate` must only use values captured beforehand
+  // (ids, dates), because it may run again on a newer list before the Worker accepts it.
+  function change(mutate) {
+    const next = clone(state);
+    mutate(next);
+    const completed = completedKeys(next);
+    if (completed.length) {
+      celebrate(clone(next), new Set(completed)); // shows the finished list with the GIF
+      resetKeys(next, completed);
+    }
+    state = next;
+    pending.push(mutate);
+    render();
+    push();
+    if (completed.length && auto) writeAuto();
+  }
+
+  /* ---------- Sync with the Worker ---------- */
+
+  let pushing = false, retryTimer = null, retryDelay = 2000, offline = false;
+
+  function api(method, body) {
+    return fetch(`${API_URL}/state`, {
+      method,
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${encodeURIComponent(password || "")}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  function setOffline(value) {
+    offline = value;
+    els.status.hidden = !offline;
+    els.status.textContent = pending.length
+      ? "Hors connexion : les dernières modifications seront envoyées dès le retour du réseau. Gardez cet onglet ouvert."
+      : "Hors connexion : la liste affichée n'est peut-être pas à jour.";
+  }
+
+  async function push() {
+    if (pushing || !pending.length || !password) return;
+    pushing = true;
+    clearTimeout(retryTimer);
+    try {
+      while (pending.length) {
+        const ops = pending.slice();
+        const data = replay(server.data, ops);
+        const res = await api("PUT", { baseVersion: server.version, data });
+        if (res.status === 401) { lock("Le mot de passe a changé. Entrez le nouveau mot de passe."); return; }
+        if (res.status === 409) {
+          // Someone else saved first: take their list and replay our changes on it.
+          const body = await res.json();
+          server = { version: body.version, data: sanitize(body.data) };
+          continue;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        server = { version: body.version, data };
+        pending.splice(0, ops.length);
+        saveCache();
+      }
+      retryDelay = 2000;
+      setOffline(false);
+      state = clone(server.data);
+      render();
+    } catch {
+      setOffline(true);
+      retryTimer = setTimeout(push, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 60000);
+    } finally {
+      pushing = false;
+    }
+  }
+
+  async function pull() {
+    if (!password || pushing || pending.length) return;
+    try {
+      const res = await api("GET");
+      if (res.status === 401) { lock("Le mot de passe a changé. Entrez le nouveau mot de passe."); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      setOffline(false);
+      if (body.version !== server.version && !pushing && !pending.length) {
+        server = { version: body.version, data: sanitize(body.data) };
+        saveCache();
+        state = clone(server.data);
+        render();
+      }
+    } catch {
+      setOffline(true);
+    }
+  }
+
+  /* ---------- Password ---------- */
+
+  function showApp() {
+    els.gate.hidden = true;
+    els.app.hidden = false;
+    render();
+  }
+  function lock(message) {
+    password = null;
+    pending = [];
+    store.del(PW_KEY);
+    store.del(CACHE_KEY);
+    server = { version: 0, data: sanitize(null) };
+    state = clone(server.data);
+    els.app.hidden = true;
+    els.gate.hidden = false;
+    els.gateError.hidden = !message;
+    els.gateError.textContent = message || "";
+    els.gatePw.value = "";
+    els.gatePw.focus();
+  }
+  els.gateForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = els.gatePw.value;
+    if (!pw) return;
+    els.gateBtn.disabled = true;
+    els.gateError.hidden = true;
+    password = pw;
+    try {
+      const res = await api("GET");
+      if (res.status === 401) {
+        password = null;
+        els.gateError.textContent = "Mot de passe incorrect.";
+        els.gateError.hidden = false;
+        els.gatePw.select();
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      store.set(PW_KEY, pw);
+      server = { version: body.version, data: sanitize(body.data) };
+      saveCache();
+      state = clone(server.data);
+      setOffline(false);
+      showApp();
+    } catch {
+      password = null;
+      els.gateError.textContent = "Connexion impossible. Vérifiez la connexion Internet, puis réessayez.";
+      els.gateError.hidden = false;
+    } finally {
+      els.gateBtn.disabled = false;
+    }
+  });
+  els.lock.addEventListener("click", () => {
+    if (celebrating) return;
+    lock("Appareil verrouillé. Entrez le mot de passe pour rouvrir la liste.");
+  });
+
+  function findItem(s, id) {
+    for (const key of KEYS) {
+      const items = s.lists[key].items;
+      const index = items.findIndex((i) => i.id === id);
+      if (index >= 0) return { key, items, index, item: items[index] };
+    }
+    return null;
+  }
+
+  // Checking stamps today's date; unchecking by hand restores the previous date.
+  function setDone(id, checked) {
+    const now = new Date().toISOString();
+    change((s) => {
+      const f = findItem(s, id);
+      if (!f) return;
+      const it = f.item;
+      if (checked && !it.done) {
+        it.prevLast = it.lastDone;
+        it.lastDone = now;
+        it.done = true;
+      } else if (!checked && it.done) {
+        if ("prevLast" in it) { it.lastDone = it.prevLast; delete it.prevLast; }
+        it.done = false;
+      }
+    });
+  }
+
+  function addItem(key, text) {
+    const id = newId();
+    change((s) => { s.lists[key].items.push({ id, text, done: false, lastDone: null }); });
+  }
+
+  function removeItem(id) {
+    const found = findItem(state, id);
+    if (!found) return;
+    const { key, index } = found;
+    const item = clone(found.item);
+    const rows = [...els.cols.querySelectorAll(".check")];
+    const pos = rows.indexOf(els.cols.querySelector(`.item[data-id="${id}"] .check`));
+    change((s) => { const f = findItem(s, id); if (f) f.items.splice(f.index, 1); });
+    const after = [...els.cols.querySelectorAll(".check")].filter((c) => c.offsetParent);
+    const target = after[Math.min(pos, after.length - 1)] || subEl(key).querySelector(".sub-add input");
+    target.focus();
+    showToast(`« ${short(item.text)} » supprimé`, () => {
+      change((s) => {
+        if (findItem(s, item.id)) return;
+        const items = s.lists[key].items;
+        items.splice(Math.min(index, items.length), 0, item);
+      });
+    });
+  }
+
+  // Swap the task's text for a field. Enter or leaving the field saves, Escape cancels.
+  let finishActiveEdit = null;
+  function startEdit(li) {
+    if (celebrating || li.classList.contains("editing")) return;
+    if (finishActiveEdit) finishActiveEdit(true); // only one task edited at a time
+    const id = li.dataset.id;
+    const found = findItem(state, id);
+    if (!found) return;
+    const original = found.item.text;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "edit-input";
+    input.maxLength = 200;
+    input.value = original;
+    input.setAttribute("aria-label", `Modifier « ${original} »`);
+    li.classList.add("editing");
+    li.draggable = false; // a draggable row would block selecting text in the field
+    li.querySelector(".row").after(input);
+    input.focus();
+    input.select();
+
+    let finished = false;
+    const finish = (save) => {
+      if (finished) return;
+      finished = true;
+      finishActiveEdit = null;
+      const text = input.value.replace(/\s+/g, " ").trim().slice(0, 200);
+      const hadFocus = document.activeElement === input;
+      input.remove();
+      li.classList.remove("editing");
+      li.draggable = true;
+      if (save && text && text !== original) {
+        change((s) => { const f = findItem(s, id); if (f) f.item.text = text; });
+      }
+      if (hadFocus) {
+        const cb = els.cols.querySelector(`.item[data-id="${id}"] .check`);
+        if (cb) cb.focus();
+      }
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+    finishActiveEdit = finish;
+  }
+
+  // Moves one step; past the first or last row it hops to the person's neighbouring sub-list.
+  function moveItem(id, delta) {
+    change((s) => {
+      const f = findItem(s, id);
+      if (!f) return;
+      const pid = f.key.split(":")[0];
+      const own = KEYS.filter((k) => k.startsWith(pid + ":"));
+      const ki = own.indexOf(f.key);
+      f.items.splice(f.index, 1);
+      const to = f.index + delta;
+      if (to < 0) {
+        const prev = own[ki - 1];
+        if (prev) s.lists[prev].items.push(f.item); else f.items.splice(f.index, 0, f.item);
+      } else if (to > f.items.length) {
+        const nextKey = own[ki + 1];
+        if (nextKey) s.lists[nextKey].items.unshift(f.item); else f.items.splice(f.index, 0, f.item);
+      } else {
+        f.items.splice(to, 0, f.item);
+      }
+    });
+    const cb = els.cols.querySelector(`.item[data-id="${id}"] .check`);
+    if (cb) cb.focus();
+  }
+
+  // Rebuild every sub-list's order from the page after a drag and drop.
+  function commitDomOrder() {
+    const order = {};
+    els.cols.querySelectorAll(".sub").forEach((sec) => {
+      order[sec.dataset.key] = [...sec.querySelectorAll(".item")].map((li) => li.dataset.id);
+    });
+    change((s) => {
+      const byId = new Map(allItems(s).map((i) => [i.id, i]));
+      const placed = new Set();
+      const lists = {};
+      for (const k of KEYS) {
+        const its = (order[k] || []).map((id) => byId.get(id)).filter((i) => i && !placed.has(i.id));
+        its.forEach((i) => placed.add(i.id));
+        lists[k] = { ...s.lists[k], items: its };
+      }
+      // Safety net: anything the page lost track of goes back to its own sub-list.
+      for (const k of KEYS) {
+        s.lists[k].items.forEach((i) => { if (!placed.has(i.id)) { lists[k].items.push(i); placed.add(i.id); } });
+      }
+      s.lists = lists;
+    });
+  }
+
+  // Fetch the other person's changes regularly, and at once when the tab comes back
+  // (which also keeps "il y a 3 j" current).
+  setInterval(() => { if (!document.hidden) pull(); }, POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); pull(); } });
+
+  /* ---------- Celebration ---------- */
+
+  // The GIF is loaded from Giphy once. Each celebration gets a fresh blob URL so the animation
+  // starts from its first frame. Without a connection the celebration goes without it.
+  const GIF_URL = "https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ2NvYmU4bHVhcTFxcGJ1OHRoang0MDIxamQ0ZzBrMG8yd25kbzdjZiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/7aBE32jCr6lOhtuE9v/giphy.gif";
+  const GIF_SHOW_MS = 6000;
+  let gifBlob = null, gifUrl = null;
+  const gifPreload = new Image();
+  gifPreload.onload = () => {
+    els.partyGif.width = gifPreload.naturalWidth;
+    els.partyGif.height = gifPreload.naturalHeight;
+  };
+  gifPreload.src = GIF_URL;
+  fetch(GIF_URL).then((r) => (r.ok ? r.blob() : null)).then((b) => { gifBlob = b; }).catch(() => {});
+
+  function showGif() {
+    let src = null;
+    if (gifBlob) {
+      if (gifUrl) URL.revokeObjectURL(gifUrl);
+      gifUrl = URL.createObjectURL(gifBlob);
+      src = gifUrl;
+    } else if (gifPreload.complete && gifPreload.naturalWidth) {
+      src = GIF_URL;
+    }
+    if (!src) return false;
+    els.partyGif.src = src;
+    els.party.hidden = false;
+    void els.party.offsetWidth; // apply the hidden-to-visible change first so the fade-in runs
+    els.party.classList.add("show");
+    return true;
+  }
+  function hideGif() {
+    els.party.classList.remove("show");
+    setTimeout(() => { if (!els.party.classList.contains("show")) els.party.hidden = true; }, 260);
+  }
+
+  function celebrate(view, keys) {
+    paint(view, { complete: keys });
+    celebrating = true;
+    pendingReset = keys;
+    clearTimeout(celebrateTimer);
+    const withGif = showGif();
+    celebrateTimer = setTimeout(endCelebration, withGif ? GIF_SHOW_MS : (REDUCED ? 900 : 1500));
+  }
+  function endCelebration() {
+    if (!celebrating) return;
+    clearTimeout(celebrateTimer);
+    hideGif();
+    celebrating = false;
+    render({ resetting: pendingReset });
+  }
+  els.party.addEventListener("click", endCelebration);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !els.party.hidden) endCelebration(); });
+
+  /* ---------- Drag and drop ---------- */
+
+  let drag = null;
+
+  function nextByY(container, y) {
+    for (const el of container.children) {
+      if (el === drag.el || !el.matches(".item")) continue;
+      const r = el.getBoundingClientRect();
+      if (y < r.top + r.height / 2) return el;
+    }
+    return null;
+  }
+
+  els.cols.addEventListener("dragstart", (e) => {
+    if (celebrating) { e.preventDefault(); return; }
+    const t = e.target;
+    if (!(t.classList && t.classList.contains("item"))) return;
+    drag = { el: t, dropped: false };
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", ""); } catch {}
+    document.body.classList.add("dragging-item");
+    requestAnimationFrame(() => t.classList.add("dragging"));
+  });
+
+  els.cols.addEventListener("dragover", (e) => {
+    if (!drag) return;
+    const sec = e.target.closest(".sub");
+    if (!sec) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const list = sec.querySelector(".list");
+    const before = nextByY(list, e.clientY);
+    if (before) { if (drag.el.nextElementSibling !== before) list.insertBefore(drag.el, before); }
+    else if (list.lastElementChild !== drag.el) list.append(drag.el);
+  });
+
+  els.cols.addEventListener("drop", (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    drag.dropped = true;
+  });
+
+  document.addEventListener("dragend", () => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    d.el.classList.remove("dragging");
+    document.body.classList.remove("dragging-item");
+    if (d.dropped) commitDomOrder(); else render(); // dropped elsewhere or Escape: put things back
+  });
+
+  /* ---------- Save to / load from a file ---------- */
+
+  const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  function backupText() {
+    const lines = [`# Ménage · sauvegarde du ${stamp(new Date())}`];
+    for (const k of KEYS) {
+      const L = state.lists[k];
+      lines.push("", `## ${subLabel(k)}`, `# Cycles : ${L.cycles}`);
+      L.items.forEach((i) => {
+        const when = i.lastDone ? `dernière fois : ${stamp(new Date(i.lastDone))}` : "jamais fait";
+        lines.push(`- [${i.done ? "x" : " "}] ${i.text} — ${when}`);
+      });
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  async function saveToFile() {
+    const now = new Date();
+    const name = `Ménage ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.txt`;
+    const blob = new Blob([backupText()], { type: "text/plain;charset=utf-8" });
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: name,
+          types: [{ description: "Sauvegarde Ménage", accept: { "text/plain": [".txt"] } }],
+        });
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        showToast(`Liste sauvegardée dans « ${handle.name} »`);
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        // Picker unavailable here: fall back to a regular download.
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast(`Fichier « ${name} » téléchargé`);
+  }
+
+  // "## Paul · Hebdomadaire" opens a sub-list, "# Cycles : 3" sets its count,
+  // "- [ ] Task — dernière fois : 28/10/2026 18:12" (or "— jamais fait") is a task.
+  const norm = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[·:–—-]/g, " ").replace(/\s+/g, " ").trim();
+  function parseBackup(text) {
+    const lists = {};
+    KEYS.forEach((k) => { lists[k] = { items: [], cycles: 0 }; });
+    const byLabel = new Map(KEYS.map((k) => [norm(subLabel(k)), k]));
+    let cur = null, count = 0, found = false;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      const heading = line.match(/^##\s+(.+)$/);
+      if (heading) { cur = byLabel.get(norm(heading[1])) || null; continue; }
+      const cyc = line.match(/^#\s*Cycles\s*:\s*(\d+)/i);
+      if (cyc) { if (cur) { lists[cur].cycles = Math.min(Number(cyc[1]), 1e9); found = true; } continue; }
+      if (line.startsWith("#") || !cur) continue;
+      const m = line.match(/^[-*]\s*\[([ xX])\]\s*(.+)$/);
+      let body = (m ? m[2] : line.replace(/^[-*]\s+/, "")).trim();
+      let lastDone = null;
+      const dm = body.match(/\s+[—–-]\s+(?:derni[eè]re fois\s*:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?|jamais fait)\s*$/i);
+      if (dm) {
+        body = body.slice(0, dm.index).trim();
+        if (dm[1]) lastDone = new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] || 12), +(dm[5] || 0)).toISOString();
+      }
+      const t = body.replace(/\s+/g, " ").slice(0, 200);
+      if (!t) continue;
+      lists[cur].items.push({ id: newId() + count, text: t, done: !!m && m[1] !== " ", lastDone });
+      found = true;
+      if (++count >= MAX_ITEMS) break;
+    }
+    return found ? { lists } : null;
+  }
+
+  async function loadFromFile(file) {
+    let text;
+    try { text = await file.text(); } catch { showToast("Impossible de lire ce fichier."); return; }
+    const parsed = parseBackup(text);
+    if (!parsed) { showToast("Ce fichier ne contient aucune tâche de Ménage."); return; }
+    const before = clone(state);
+    const n = KEYS.reduce((sum, k) => sum + parsed.lists[k].items.length, 0);
+    change((s) => { s.lists = parsed.lists; });
+    showToast(`Sauvegarde chargée : ${plural(n, "tâche")}`, () => { change((s) => { s.lists = before.lists; }); });
+  }
+
+  /* ---------- Auto-save: one chosen file, overwritten each time a sub-list is finished ---------- */
+
+  // The file handle is kept in IndexedDB so the choice survives a reload. After a reload Chrome
+  // may ask once for permission to write; that request happens on the click that finishes a list.
+  const AUTO_KEY = "autosave";
+  const canAutoSave = typeof window.showSaveFilePicker === "function" && "indexedDB" in window;
+  let auto = null; // { handle, lastAt }
+
+  function idb(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open("menage", 1);
+      open.onupgradeneeded = () => open.result.createObjectStore("kv");
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        let req;
+        try {
+          const tx = db.transaction("kv", mode);
+          tx.oncomplete = () => { db.close(); resolve(req && req.result); };
+          tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+          req = fn(tx.objectStore("kv"));
+        } catch (e) { db.close(); reject(e); }
+      };
+    });
+  }
+
+  function renderAuto() {
+    if (!canAutoSave) { els.autosave.hidden = true; return; }
+    els.autosave.hidden = false;
+    if (!auto) {
+      els.autoText.textContent = "Sauvegarde auto désactivée";
+      els.autoPick.textContent = "Choisir un fichier";
+      els.autoOff.hidden = true;
+      return;
+    }
+    const d = auto.lastAt ? new Date(auto.lastAt) : null;
+    const last = d ? ` · dernière le ${pad(d.getDate())}/${pad(d.getMonth() + 1)} à ${pad(d.getHours())}:${pad(d.getMinutes())}` : "";
+    els.autoText.textContent = `Sauvegarde auto à chaque liste terminée dans « ${auto.handle.name} »${last}`;
+    els.autoPick.textContent = "Changer de fichier";
+    els.autoOff.hidden = false;
+  }
+
+  async function writeAuto() {
+    const current = auto;
+    if (!current) return false;
+    try {
+      let perm = "granted";
+      if (typeof current.handle.queryPermission === "function") {
+        perm = await current.handle.queryPermission({ mode: "readwrite" });
+        if (perm !== "granted") perm = await current.handle.requestPermission({ mode: "readwrite" });
+      }
+      if (perm !== "granted") {
+        showToast(`Sauvegarde auto non faite : Chrome n'a pas reçu l'autorisation d'écrire dans « ${current.handle.name} ».`);
+        return false;
+      }
+      const w = await current.handle.createWritable(); // replaces the file's content on close
+      await w.write(new Blob([backupText()], { type: "text/plain;charset=utf-8" }));
+      await w.close();
+      current.lastAt = new Date().toISOString();
+      await idb("readwrite", (st) => st.put(current, AUTO_KEY)).catch(() => {});
+      renderAuto();
+      return true;
+    } catch {
+      showToast(`Sauvegarde auto impossible dans « ${current.handle.name} ». Choisissez à nouveau le fichier.`);
+      return false;
+    }
+  }
+
+  async function chooseAutoFile() {
+    let handle;
+    try {
+      handle = await window.showSaveFilePicker({
+        id: "menage-autosave",
+        suggestedName: "sauvegarde-menage.txt",
+        types: [{ description: "Sauvegarde Ménage", accept: { "text/plain": [".txt"] } }],
+      });
+    } catch (e) {
+      if (!e || e.name !== "AbortError") showToast("Impossible d'utiliser ce fichier pour la sauvegarde auto.");
+      return;
+    }
+    auto = { handle, lastAt: null };
+    renderAuto();
+    if (await writeAuto()) showToast(`Sauvegarde auto activée dans « ${handle.name} »`);
+  }
+
+  els.autoPick.addEventListener("click", chooseAutoFile);
+  els.autoOff.addEventListener("click", () => {
+    auto = null;
+    idb("readwrite", (st) => st.delete(AUTO_KEY)).catch(() => {});
+    renderAuto();
+    showToast("Sauvegarde auto désactivée. Le fichier existant n'est pas supprimé.");
+  });
+
+  if (canAutoSave) {
+    idb("readonly", (st) => st.get(AUTO_KEY))
+      .then((saved) => { if (saved && saved.handle) auto = saved; })
+      .catch(() => {})
+      .finally(renderAuto);
+  }
+
+  /* ---------- Toast ---------- */
+
+  let toastTimer = null, undoFn = null;
+  function showToast(msg, onUndo) {
+    els.toastText.textContent = msg;
+    undoFn = onUndo || null;
+    els.toastUndo.hidden = !onUndo;
+    els.toast.hidden = false;
+    void els.toast.offsetWidth;
+    els.toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, onUndo ? 6000 : 3500);
+  }
+  function hideToast() {
+    els.toast.classList.remove("show");
+    undoFn = null;
+    setTimeout(() => { if (!els.toast.classList.contains("show")) els.toast.hidden = true; }, 250);
+  }
+  els.toastUndo.addEventListener("click", () => { const f = undoFn; hideToast(); if (f) f(); });
+
+  /* ---------- Events ---------- */
+
+  els.cols.addEventListener("change", (e) => {
+    const cb = e.target.closest(".check");
+    if (!cb) return;
+    if (celebrating) { cb.checked = !cb.checked; return; }
+    setDone(cb.closest(".item").dataset.id, cb.checked);
+  });
+
+  els.cols.addEventListener("submit", (e) => {
+    const form = e.target.closest(".sub-add");
+    if (!form) return;
+    e.preventDefault();
+    const input = form.querySelector("input");
+    const text = input.value.replace(/\s+/g, " ").trim();
+    if (!text) { input.focus(); return; }
+    addItem(form.closest(".sub").dataset.key, text.slice(0, 200));
+    input.value = "";
+    input.focus();
+  });
+
+  els.cols.addEventListener("click", (e) => {
+    if (celebrating) return;
+    const del = e.target.closest(".del");
+    if (del) { removeItem(del.closest(".item").dataset.id); return; }
+    const edit = e.target.closest(".edit");
+    if (edit) startEdit(edit.closest(".item"));
+  });
+
+  els.cols.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const cb = e.target.closest(".check");
+    if (cb && e.altKey) { e.preventDefault(); moveItem(cb.closest(".item").dataset.id, e.key === "ArrowUp" ? -1 : 1); }
+  });
+
+  // Two clicks to empty everything: the first arms the button, the second confirms.
+  let resetArmed = false, resetTimer = null;
+  function disarmReset() {
+    resetArmed = false;
+    clearTimeout(resetTimer);
+    els.reset.textContent = "Réinitialiser tout";
+    els.reset.classList.remove("is-armed");
+  }
+  els.reset.addEventListener("click", () => {
+    if (celebrating) return;
+    if (!resetArmed) {
+      resetArmed = true;
+      els.reset.textContent = "Confirmer : tout supprimer pour Paul et Marguerite";
+      els.reset.classList.add("is-armed");
+      resetTimer = setTimeout(disarmReset, 4000);
+      return;
+    }
+    disarmReset();
+    const before = clone(state);
+    const n = allItems(before).length;
+    change((s) => { KEYS.forEach((k) => { s.lists[k] = { items: [], cycles: 0 }; }); });
+    showToast(`Tout est réinitialisé : ${plural(n, "tâche")} supprimée${n > 1 ? "s" : ""}`, () => {
+      change((s) => { s.lists = before.lists; });
+    });
+  });
+
+  els.save.addEventListener("click", saveToFile);
+  els.load.addEventListener("click", () => els.file.click());
+  els.file.addEventListener("change", () => {
+    const f = els.file.files && els.file.files[0];
+    els.file.value = "";
+    if (f) loadFromFile(f);
+  });
+
+  buildColumns();
+  applyView();
+  if (password) { showApp(); pull(); } else { lock(""); }
+})();
+</script>
+</body>
+</html>

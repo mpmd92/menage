@@ -122,19 +122,22 @@
   .last { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .last.never { font-style: italic; }
   .last.late { color: var(--danger); }
-  .del, .edit {
+  .del, .edit, .share {
     flex: none; width: 38px; height: 38px; border: 0; border-radius: 8px;
     background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; opacity: 0;
     transition: opacity .15s, color .15s, background-color .15s;
   }
   .del { margin-right: 6px; }
-  .item:hover .del, .item:hover .edit, .del:focus-visible, .edit:focus-visible { opacity: 1; }
+  .item:hover .del, .item:hover .edit, .item:hover .share,
+  .del:focus-visible, .edit:focus-visible, .share:focus-visible { opacity: 1; }
+  .share:hover { color: var(--ink); background: var(--bg); }
+  .share[aria-pressed="true"] { color: var(--accent); }
   .del:hover { color: var(--danger); background: var(--bg); }
   .edit:hover { color: var(--ink); background: var(--bg); }
-  .del:focus-visible, .edit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  @media (hover: none) { .del, .edit { opacity: .75; } }
+  .del:focus-visible, .edit:focus-visible, .share:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (hover: none) { .del, .edit, .share { opacity: .75; } }
   /* Editing a task's text in place */
-  .item.editing .txt, .item.editing .edit, .item.editing .del, .item.editing .item-grip { display: none; }
+  .item.editing .txt, .item.editing .edit, .item.editing .share, .item.editing .del, .item.editing .item-grip { display: none; }
   .item.editing .row { flex: none; padding-right: 14px; }
   .edit-input {
     flex: 1; min-width: 0; margin: 6px 12px 6px 0; padding: 6px 10px;
@@ -154,6 +157,15 @@
   .sub-add input::placeholder { color: var(--muted); }
   .sub-add input:focus { outline: none; }
   .sub-add:focus-within { box-shadow: inset 3px 0 0 var(--accent); }
+  /* "À deux": the next tasks added here also go to the other person's list */
+  .sub-add .pair {
+    flex: none; font: inherit; font-size: .75rem; font-weight: 600; color: var(--muted); cursor: pointer;
+    padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: none;
+    transition: color .15s, background-color .15s, border-color .15s;
+  }
+  .sub-add .pair:hover { color: var(--ink); border-color: var(--muted); }
+  .sub-add .pair[aria-pressed="true"] { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  .sub-add .pair:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* Actions row */
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
@@ -349,6 +361,7 @@
 
   const GRIP_SVG = '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true" fill="currentColor"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
   const PEN_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 13h2.4L12.8 5.6a1.4 1.4 0 0 0 0-2L12.4 3.2a1.4 1.4 0 0 0-2 0L3 10.6V13zM9.4 4.2l2.4 2.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></path></svg>';
+  const PAIR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5.5" cy="5.4" r="2.2"/><circle cx="11.2" cy="6" r="1.8"/><path d="M1.8 13.2c.4-2.2 2-3.4 3.7-3.4s3.3 1.2 3.7 3.4M9.7 10c.5-.2 1-.3 1.5-.3 1.5 0 2.7 1 3 3"/></svg>';
   const X_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
 
   const $ = (id) => document.getElementById(id);
@@ -369,6 +382,42 @@
   const plural = (n, word) => `${n} ${word}${n > 1 ? "s" : ""}`;
   const allItems = (s) => KEYS.flatMap((k) => s.lists[k].items);
   const subEl = (key) => els.cols.querySelector(`.sub[data-key="${key}"]`);
+  const personOf = (key) => key.split(":")[0];
+  const freqOf = (key) => key.split(":")[1];
+  const otherPerson = (key) => PEOPLE.find((p) => p.id !== personOf(key));
+  const bothNames = PEOPLE.map((p) => p.name).join(" et ");
+
+  // A task done by both people is one copy in each person's list of the same frequency,
+  // the copies sharing a `link` id. Checking one checks the others; each list still resets on its own.
+  function copiesOf(s, link) {
+    const out = [];
+    for (const key of KEYS) {
+      s.lists[key].items.forEach((item, index) => { if (item.link === link) out.push({ key, index, item, items: s.lists[key].items }); });
+    }
+    return out;
+  }
+  const keyMap = (s) => {
+    const m = new Map();
+    for (const k of KEYS) s.lists[k].items.forEach((i) => m.set(i.id, k));
+    return m;
+  };
+  // After a move, a shared task's copies stay in the same frequency: they follow the copy that moved.
+  function alignLinks(s, prevKeyOf) {
+    const links = [...new Set(allItems(s).filter((i) => i.link).map((i) => i.link))];
+    for (const link of links) {
+      const copies = copiesOf(s, link);
+      if (new Set(copies.map((c) => freqOf(c.key))).size < 2) continue;
+      const moved = copies.find((c) => prevKeyOf.has(c.item.id) && freqOf(prevKeyOf.get(c.item.id)) !== freqOf(c.key));
+      if (!moved) continue;
+      const target = freqOf(moved.key);
+      for (const c of copies) {
+        if (freqOf(c.key) === target) continue;
+        const items = s.lists[c.key].items;
+        items.splice(items.indexOf(c.item), 1);
+        s.lists[`${personOf(c.key)}:${target}`].items.push(c.item);
+      }
+    }
+  }
 
   /* ---------- Storage ---------- */
 
@@ -387,7 +436,9 @@
         .filter((i) => i && typeof i.text === "string")
         .map((i) => {
           const it = { id: okId(i.id), text: i.text.slice(0, 200), done: !!i.done, lastDone: okDate(i.lastDone) };
+          if (typeof i.link === "string" && /^[a-z0-9]{1,40}$/i.test(i.link)) it.link = i.link;
           if (it.done && "prevLast" in i) it.prevLast = okDate(i.prevLast);
+          if (it.done && i.doneAt) it.doneAt = okDate(i.doneAt);
           return it;
         });
       lists[k] = { items, cycles: r && Number.isInteger(r.cycles) && r.cycles > 0 ? r.cycles : 0 };
@@ -462,6 +513,7 @@
           '<form class="sub-add" autocomplete="off">' +
             '<span class="plus" aria-hidden="true">+</span>' +
             `<input id="add-${p.id}-${f.id}" type="text" maxlength="200" placeholder="Ajouter une tâche…" aria-label="Ajouter une tâche à ${p.name}, ${f.name.toLowerCase()}">` +
+            `<button type="button" class="pair" aria-pressed="false" title="La tâche apparaîtra aussi chez ${PEOPLE.find((o) => o.id !== p.id).name}">À deux</button>` +
           '</form>' +
         '</section>').join("");
       els.cols.append(col);
@@ -476,6 +528,7 @@
     li.innerHTML =
       `<span class="item-grip" aria-hidden="true">${GRIP_SVG}</span>` +
       '<label class="row"><input type="checkbox" class="check"><span class="txt"><span class="text"></span><span class="last"></span></span></label>' +
+      `<button type="button" class="share">${PAIR_SVG}</button>` +
       `<button type="button" class="edit">${PEN_SVG}</button>` +
       `<button type="button" class="del">${X_SVG}</button>`;
     return li;
@@ -490,8 +543,15 @@
       if (ids.has(li.dataset.id)) itemEls.set(li.dataset.id, li); else li.remove();
     });
 
+    // A shared task shows the last time either person did it.
+    const lastByLink = new Map();
+    for (const it of allItems(view)) {
+      if (it.link && it.lastDone && !(lastByLink.get(it.link) >= it.lastDone)) lastByLink.set(it.link, it.lastDone);
+    }
+
     for (const key of KEYS) {
       const { freq } = keyInfo(key);
+      const partner = otherPerson(key).name;
       const L = view.lists[key];
       const sec = subEl(key);
       const list = sec.querySelector(".list");
@@ -501,14 +561,22 @@
         li.querySelector(".check").checked = item.done;
         li.querySelector(".text").textContent = item.text;
         const last = li.querySelector(".last");
-        last.hidden = item.done;
+        const parts = item.link ? [`Avec ${partner}`] : [];
+        let info = null;
         if (!item.done) {
-          const info = lastInfo(item, freq);
-          last.textContent = info.text;
-          last.title = info.title;
-          last.classList.toggle("never", info.never);
-          last.classList.toggle("late", info.late);
+          info = lastInfo({ lastDone: item.link ? lastByLink.get(item.link) || null : item.lastDone }, freq);
+          parts.push(info.text);
         }
+        last.hidden = parts.length === 0;
+        last.textContent = parts.join(" · ");
+        last.title = info ? info.title : "";
+        last.classList.toggle("never", !!info && info.never);
+        last.classList.toggle("late", !!info && info.late);
+        li.dataset.link = item.link || "";
+        const share = li.querySelector(".share");
+        share.setAttribute("aria-pressed", String(!!item.link));
+        share.setAttribute("aria-label", item.link ? `Ne plus partager « ${item.text} » avec ${partner}` : `Partager « ${item.text} » avec ${partner}`);
+        share.title = item.link ? `Ne plus partager avec ${partner}` : `Partager avec ${partner}`;
         li.querySelector(".edit").setAttribute("aria-label", `Modifier « ${item.text} »`);
         li.querySelector(".del").setAttribute("aria-label", `Supprimer « ${item.text} »`);
         if (list.children[i] !== li) list.insertBefore(li, list.children[i] || null);
@@ -568,7 +636,7 @@
   });
   function resetKeys(s, keys) {
     for (const k of keys) {
-      s.lists[k].items.forEach((i) => { i.done = false; delete i.prevLast; });
+      s.lists[k].items.forEach((i) => { i.done = false; delete i.prevLast; delete i.doneAt; });
       s.lists[k].cycles += 1;
     }
   }
@@ -748,46 +816,114 @@
   }
 
   // Checking stamps today's date; unchecking by hand restores the previous date.
+  // A shared task is checked for both people. Unchecking undoes only what that same check did,
+  // so a copy the other person checked earlier stays checked.
   function setDone(id, checked) {
     const now = new Date().toISOString();
     const found = findItem(state, id);
-    const backup = checked && found ? `Coché : ${found.item.text} (${subLabel(found.key)})` : null;
+    const where = found && (found.item.link ? `${bothNames} · ${keyInfo(found.key).freq.name}` : subLabel(found.key));
+    const backup = checked && found ? `Coché : ${found.item.text} (${where})` : null;
     change((s) => {
       const f = findItem(s, id);
       if (!f) return;
-      const it = f.item;
-      if (checked && !it.done) {
-        it.prevLast = it.lastDone;
-        it.lastDone = now;
-        it.done = true;
-      } else if (!checked && it.done) {
-        if ("prevLast" in it) { it.lastDone = it.prevLast; delete it.prevLast; }
-        it.done = false;
+      const copies = f.item.link ? copiesOf(s, f.item.link).map((c) => c.item) : [f.item];
+      if (checked && !f.item.done) {
+        for (const it of copies) {
+          if (it.done) continue;
+          it.prevLast = it.lastDone;
+          it.lastDone = now;
+          it.done = true;
+          it.doneAt = now;
+        }
+      } else if (!checked && f.item.done) {
+        const at = f.item.doneAt;
+        for (const it of copies) {
+          if (!it.done || (it !== f.item && (!at || it.doneAt !== at))) continue;
+          if ("prevLast" in it) { it.lastDone = it.prevLast; delete it.prevLast; }
+          it.done = false;
+          delete it.doneAt;
+        }
       }
     }, { backup });
   }
 
-  function addItem(key, text) {
-    const id = newId();
-    change((s) => { s.lists[key].items.push({ id, text, done: false, lastDone: null }); });
+  function addItem(key, text, shared) {
+    if (!shared) {
+      const id = newId();
+      change((s) => { s.lists[key].items.push({ id, text, done: false, lastDone: null }); });
+      return;
+    }
+    const link = newId();
+    const ids = PEOPLE.map((p, n) => newId() + n);
+    change((s) => {
+      PEOPLE.forEach((p, n) => { s.lists[`${p.id}:${freqOf(key)}`].items.push({ id: ids[n], text, done: false, lastDone: null, link }); });
+    });
+  }
+
+  // Shares a task with the other person (a copy appears in their list), or stops sharing it.
+  function toggleShare(id) {
+    const found = findItem(state, id);
+    if (!found) return;
+    const { key, item } = found;
+    const partner = otherPerson(key).name;
+    if (item.link) {
+      const others = copiesOf(state, item.link)
+        .filter((c) => c.item.id !== id)
+        .map((c) => ({ key: c.key, index: c.index, item: clone(c.item) }));
+      const link = item.link;
+      change((s) => {
+        const f = findItem(s, id);
+        if (f) delete f.item.link;
+        for (const o of others) { const g = findItem(s, o.item.id); if (g) g.items.splice(g.index, 1); }
+      });
+      showToast(`« ${short(item.text)} » n'est plus partagée avec ${partner}`, () => {
+        change((s) => {
+          const f = findItem(s, id);
+          if (!f) return;
+          f.item.link = link;
+          for (const o of others) {
+            if (findItem(s, o.item.id)) continue;
+            const items = s.lists[o.key].items;
+            items.splice(Math.min(o.index, items.length), 0, o.item);
+          }
+        });
+      });
+    } else {
+      const link = newId();
+      const copyId = newId() + "c";
+      const otherKey = `${otherPerson(key).id}:${freqOf(key)}`;
+      change((s) => {
+        const f = findItem(s, id);
+        if (!f) return;
+        f.item.link = link;
+        s.lists[otherKey].items.push({ ...clone(f.item), id: copyId, link });
+      });
+      showToast(`« ${short(item.text)} » est maintenant partagée avec ${partner}`);
+    }
   }
 
   function removeItem(id) {
     const found = findItem(state, id);
     if (!found) return;
-    const { key, index } = found;
+    const { key } = found;
     const item = clone(found.item);
+    const saved = (item.link ? copiesOf(state, item.link) : [found]).map((c) => ({ key: c.key, index: c.index, item: clone(c.item) }));
     const rows = [...els.cols.querySelectorAll(".check")];
     const pos = rows.indexOf(els.cols.querySelector(`.item[data-id="${id}"] .check`));
-    change((s) => { const f = findItem(s, id); if (f) f.items.splice(f.index, 1); });
+    change((s) => {
+      for (const c of saved) { const f = findItem(s, c.item.id); if (f) f.items.splice(f.index, 1); }
+    });
     const after = [...els.cols.querySelectorAll(".check")].filter((c) => c.offsetParent);
     const target = after[Math.min(pos, after.length - 1)] || subEl(key).querySelector(".sub-add input");
     target.focus();
-    showToast(`« ${short(item.text)} » supprimé`, () => {
+    const forWhom = saved.length > 1 ? ` pour ${bothNames}` : "";
+    showToast(`« ${short(item.text)} » supprimé${forWhom}`, () => {
       change((s) => {
-        if (findItem(s, item.id)) return;
-        const items = s.lists[key].items;
-        items.splice(Math.min(index, items.length), 0, item);
+        for (const c of saved.slice().sort((a, b) => a.index - b.index)) {
+          if (findItem(s, c.item.id)) continue;
+          const items = s.lists[c.key].items;
+          items.splice(Math.min(c.index, items.length), 0, c.item);
+        }
       });
     });
   }
@@ -824,7 +960,11 @@
       li.classList.remove("editing");
       li.draggable = true;
       if (save && text && text !== original) {
-        change((s) => { const f = findItem(s, id); if (f) f.item.text = text; });
+        change((s) => {
+          const f = findItem(s, id);
+          if (!f) return;
+          (f.item.link ? copiesOf(s, f.item.link) : [f]).forEach((c) => { c.item.text = text; });
+        });
       }
       if (hadFocus) {
         const cb = els.cols.querySelector(`.item[data-id="${id}"] .check`);
@@ -845,6 +985,7 @@
     change((s) => {
       const f = findItem(s, id);
       if (!f) return;
+      const prev = keyMap(s);
       const pid = f.key.split(":")[0];
       const own = KEYS.filter((k) => k.startsWith(pid + ":"));
       const ki = own.indexOf(f.key);
@@ -859,6 +1000,7 @@
       } else {
         f.items.splice(to, 0, f.item);
       }
+      alignLinks(s, prev);
     });
     const cb = els.cols.querySelector(`.item[data-id="${id}"] .check`);
     if (cb) cb.focus();
@@ -871,6 +1013,7 @@
       order[sec.dataset.key] = [...sec.querySelectorAll(".item")].map((li) => li.dataset.id);
     });
     change((s) => {
+      const prev = keyMap(s);
       const byId = new Map(allItems(s).map((i) => [i.id, i]));
       const placed = new Set();
       const lists = {};
@@ -884,6 +1027,7 @@
         s.lists[k].items.forEach((i) => { if (!placed.has(i.id)) { lists[k].items.push(i); placed.add(i.id); } });
       }
       s.lists = lists;
+      alignLinks(s, prev);
     });
   }
 
@@ -963,7 +1107,7 @@
     if (celebrating) { e.preventDefault(); return; }
     const t = e.target;
     if (!(t.classList && t.classList.contains("item"))) return;
-    drag = { el: t, dropped: false };
+    drag = { el: t, dropped: false, person: personOf(t.closest(".sub").dataset.key) };
     e.dataTransfer.effectAllowed = "move";
     try { e.dataTransfer.setData("text/plain", ""); } catch {}
     document.body.classList.add("dragging-item");
@@ -974,6 +1118,8 @@
     if (!drag) return;
     const sec = e.target.closest(".sub");
     if (!sec) return;
+    // The other person already has their own copy of a shared task.
+    if (drag.el.dataset.link && personOf(sec.dataset.key) !== drag.person) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const list = sec.querySelector(".list");
@@ -1008,7 +1154,7 @@
       lines.push("", `## ${subLabel(k)}`, `# Cycles : ${L.cycles}`);
       L.items.forEach((i) => {
         const when = i.lastDone ? `dernière fois : ${stamp(new Date(i.lastDone))}` : "jamais fait";
-        lines.push(`- [${i.done ? "x" : " "}] ${i.text} — ${when}`);
+        lines.push(`- [${i.done ? "x" : " "}] ${i.text}${i.link ? " (à deux)" : ""} — ${when}`);
       });
     }
     lines.push("");
@@ -1070,13 +1216,34 @@
         body = body.slice(0, dm.index).trim();
         if (dm[1]) lastDone = new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] || 12), +(dm[5] || 0)).toISOString();
       }
+      let shared = false;
+      const pm = body.match(/\s*\(\s*[àa] deux\s*\)\s*$/i);
+      if (pm) { shared = true; body = body.slice(0, pm.index).trim(); }
       const t = body.replace(/\s+/g, " ").slice(0, 200);
       if (!t) continue;
-      lists[cur].items.push({ id: newId() + count, text: t, done: !!m && m[1] !== " ", lastDone });
+      const it = { id: newId() + count, text: t, done: !!m && m[1] !== " ", lastDone };
+      if (shared) it.shared = true;
+      lists[cur].items.push(it);
       found = true;
       if (++count >= MAX_ITEMS) break;
     }
-    return found ? { lists } : null;
+    if (!found) return null;
+    // Pair up the tasks marked "(à deux)": same frequency and same text in both lists.
+    FREQS.forEach((f) => {
+      const [a, b] = PEOPLE.map((p) => lists[`${p.id}:${f.id}`]);
+      a.items.filter((i) => i.shared).forEach((i) => {
+        const mate = b.items.find((j) => j.shared && !j.link && norm(j.text) === norm(i.text));
+        i.link = newId() + "l";
+        if (mate) mate.link = i.link;
+        else b.items.push({ id: i.id + "m", text: i.text, done: i.done, lastDone: i.lastDone, link: i.link });
+      });
+      b.items.filter((j) => j.shared && !j.link).forEach((j) => {
+        j.link = newId() + "r";
+        a.items.push({ id: j.id + "m", text: j.text, done: j.done, lastDone: j.lastDone, link: j.link });
+      });
+      [a, b].forEach((L) => L.items.forEach((i) => { delete i.shared; }));
+    });
+    return { lists };
   }
 
   async function loadFromFile(file) {
@@ -1245,13 +1412,25 @@
     const input = form.querySelector("input");
     const text = input.value.replace(/\s+/g, " ").trim();
     if (!text) { input.focus(); return; }
-    addItem(form.closest(".sub").dataset.key, text.slice(0, 200));
+    const pair = form.querySelector(".pair");
+    addItem(form.closest(".sub").dataset.key, text.slice(0, 200), pair.getAttribute("aria-pressed") === "true");
     input.value = "";
     input.focus();
   });
 
   els.cols.addEventListener("click", (e) => {
     if (celebrating) return;
+    const pair = e.target.closest(".pair");
+    if (pair) {
+      const on = pair.getAttribute("aria-pressed") !== "true";
+      pair.setAttribute("aria-pressed", String(on));
+      const input = pair.closest(".sub-add").querySelector("input");
+      input.placeholder = on ? "Ajouter une tâche à deux…" : "Ajouter une tâche…";
+      input.focus();
+      return;
+    }
+    const share = e.target.closest(".share");
+    if (share) { toggleShare(share.closest(".item").dataset.id); return; }
     const del = e.target.closest(".del");
     if (del) { removeItem(del.closest(".item").dataset.id); return; }
     const edit = e.target.closest(".edit");

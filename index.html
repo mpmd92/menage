@@ -279,7 +279,7 @@
   </div>
 
   <p class="backup-line">
-    <span id="backupText">Sauvegarde en ligne à chaque liste terminée</span>
+    <span id="backupText">Sauvegarde en ligne à chaque tâche cochée</span>
     <button type="button" class="ghost quiet" id="backupOpen">Voir les sauvegardes</button>
   </p>
 
@@ -302,7 +302,7 @@
       <h2 id="backupTitle">Sauvegardes en ligne</h2>
       <button type="button" class="dlg-close" id="backupClose" aria-label="Fermer"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button>
     </div>
-    <p class="dlg-note">Faites à chaque liste terminée, et avant une restauration, un import ou une réinitialisation.</p>
+    <p class="dlg-note">Faites à chaque tâche cochée, et avant une restauration, un import ou une réinitialisation. Les 200 plus récentes sont affichées.</p>
     <button type="button" class="ghost" id="backupNow">Créer une sauvegarde maintenant</button>
     <ul class="bk-list" id="backupList"></ul>
     <p class="bk-empty" id="backupEmpty" hidden>Aucune sauvegarde pour l'instant.</p>
@@ -581,7 +581,8 @@
 
   // Every change goes through here. `mutate` must only use values captured beforehand
   // (ids, dates), because it may run again on a newer list before the Worker accepts it.
-  function change(mutate) {
+  // `backup`: a label to also keep the result as an online backup (used for every checked task).
+  function change(mutate, { backup = null } = {}) {
     const next = clone(state);
     mutate(next);
     const completed = completedKeys(next);
@@ -590,8 +591,9 @@
       resetKeys(next, completed);
     }
     state = next;
-    // A finished list is backed up online, in the same request that saves it.
-    pending.push({ op: mutate, backup: completed.length ? `Liste terminée : ${completed.map(subLabel).join(", ")}` : null });
+    // The backup is made by the Worker in the same request that saves the change.
+    const label = backup && completed.length ? `${backup} · liste terminée` : backup;
+    pending.push({ op: mutate, backup: label });
     render();
     push();
   }
@@ -748,6 +750,8 @@
   // Checking stamps today's date; unchecking by hand restores the previous date.
   function setDone(id, checked) {
     const now = new Date().toISOString();
+    const found = findItem(state, id);
+    const backup = checked && found ? `Coché : ${found.item.text} (${subLabel(found.key)})` : null;
     change((s) => {
       const f = findItem(s, id);
       if (!f) return;
@@ -760,7 +764,7 @@
         if ("prevLast" in it) { it.lastDone = it.prevLast; delete it.prevLast; }
         it.done = false;
       }
-    });
+    }, { backup });
   }
 
   function addItem(key, text) {
@@ -1095,8 +1099,8 @@
   };
   function showLastBackup(iso) {
     els.backupText.textContent = iso
-      ? `Sauvegarde en ligne à chaque liste terminée · dernière le ${fmtStamp(iso)}`
-      : "Sauvegarde en ligne à chaque liste terminée";
+      ? `Sauvegarde en ligne à chaque tâche cochée · dernière le ${fmtStamp(iso)}`
+      : "Sauvegarde en ligne à chaque tâche cochée";
   }
 
   // Waits (a few seconds at most) until every local change has reached the Worker.

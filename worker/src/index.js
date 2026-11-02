@@ -7,7 +7,7 @@ import { DurableObject } from "cloudflare:workers";
 // GET  /state           -> { version, data, updatedAt }
 // PUT  /state           <- { baseVersion, data, backup? }  -> 200 { version, updatedAt, backup? } | 409 { version, data, updatedAt }
 //                          `backup` (a label) also stores the new list as a named backup, in the same step.
-// GET  /backups         -> the backups, newest first: { id, createdAt, label, version, tasks }
+// GET  /backups         -> the 200 latest backups (1000 are kept), newest first: { id, createdAt, label, version, tasks }
 // POST /backups         <- { label }  -> backs up the current list as it is now
 // GET  /backups/<id>    -> one backup, with its list
 // GET  /history         -> the 50 latest previous versions (number and date), to recover from a mistake
@@ -15,7 +15,8 @@ import { DurableObject } from "cloudflare:workers";
 
 const MAX_BYTES = 512 * 1024;
 const HISTORY_KEEP = 200;
-const BACKUPS_KEEP = 300;
+const BACKUPS_KEEP = 1000;
+const BACKUPS_LISTED = 200;
 const MAX_LABEL = 160;
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -87,7 +88,7 @@ export class MenageStore extends DurableObject {
 
   listBackups() {
     return this.ctx.storage.sql.exec(
-      "SELECT id, created_at AS createdAt, label, version, tasks FROM backups ORDER BY id DESC LIMIT ?", BACKUPS_KEEP
+      "SELECT id, created_at AS createdAt, label, version, tasks FROM backups ORDER BY id DESC LIMIT ?", BACKUPS_LISTED
     ).toArray();
   }
 

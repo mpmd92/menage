@@ -225,6 +225,39 @@
   }
   .toast button:focus-visible { outline: 2px solid var(--toast-link); }
 
+  /* "Combien de temps ?" panel, shown after each check */
+  .ask {
+    position: fixed; z-index: 3; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 12px); opacity: 0; transition: opacity .2s, transform .2s;
+    width: min(31rem, calc(100% - 32px)); padding: 14px 16px; border-radius: 14px;
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 32px rgb(23 58 39 / .18);
+  }
+  .ask.show { opacity: 1; transform: translate(-50%, 0); }
+  .ask-title { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .ask-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ask-chips button {
+    font: inherit; font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); cursor: pointer;
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg);
+    transition: border-color .15s, background-color .15s;
+  }
+  .ask-chips button:hover { border-color: var(--accent); }
+  .ask-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .ask-row input {
+    width: 7rem; font: inherit; color: var(--ink); padding: 6px 10px;
+    border: 1.5px solid var(--line); border-radius: 8px; background: var(--surface);
+  }
+  .ask-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .ask-row .unit { font-size: .85rem; color: var(--muted); }
+  .ask-row .ok {
+    font: inherit; font-weight: 600; padding: 6px 14px; border: 0; border-radius: 8px;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
+  }
+  .ask-row .ghost { margin-left: auto; }
+  .ask button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body.asking { padding-bottom: calc(var(--ask-h, 150px) + 60px); }
+  body.asking .toast { bottom: calc(30px + var(--ask-h, 150px) + env(safe-area-inset-bottom, 0px)); }
+
   /* The GIF alone, shown when a sub-list is finished */
   .party {
     position: fixed; inset: 0; z-index: 4; display: grid; place-items: center; padding: 16px;
@@ -327,6 +360,28 @@
   </div>
 </div>
 
+<div class="ask" id="ask" role="dialog" aria-labelledby="askTitle" hidden>
+  <p class="ask-title" id="askTitle"></p>
+  <div class="ask-chips" id="askChips">
+    <button type="button" data-min="5">5 min</button>
+    <button type="button" data-min="10">10 min</button>
+    <button type="button" data-min="15">15 min</button>
+    <button type="button" data-min="20">20 min</button>
+    <button type="button" data-min="30">30 min</button>
+    <button type="button" data-min="45">45 min</button>
+    <button type="button" data-min="60">1 h</button>
+    <button type="button" data-min="90">1 h 30</button>
+    <button type="button" data-min="120">2 h</button>
+  </div>
+  <form class="ask-row" id="askForm" autocomplete="off">
+    <label for="askInput" class="sr-only">Autre durée, en minutes</label>
+    <input id="askInput" type="number" min="1" max="1440" step="1" inputmode="numeric" placeholder="Autre">
+    <span class="unit">min</span>
+    <button type="submit" class="ok">OK</button>
+    <button type="button" class="ghost quiet" id="askSkip">Passer</button>
+  </form>
+</div>
+
 <div class="toast" id="toast" role="status" hidden>
   <span id="toastText"></span>
   <button type="button" id="toastUndo">Annuler</button>
@@ -370,6 +425,7 @@
     reset: $("resetBtn"), lock: $("lockBtn"), save: $("saveBtn"), load: $("loadBtn"), file: $("loadFile"),
     gate: $("gate"), gateForm: $("gateForm"), gatePw: $("gatePw"), gateError: $("gateError"), gateBtn: $("gateBtn"),
     status: $("status"), toast: $("toast"), toastText: $("toastText"), toastUndo: $("toastUndo"),
+    ask: $("ask"), askTitle: $("askTitle"), askChips: $("askChips"), askForm: $("askForm"), askInput: $("askInput"), askSkip: $("askSkip"),
     party: $("party"), partyGif: $("partyGif"),
     backupText: $("backupText"), backupOpen: $("backupOpen"), backupDlg: $("backupDlg"), backupClose: $("backupClose"),
     backupNow: $("backupNow"), backupList: $("backupList"), backupEmpty: $("backupEmpty"),
@@ -437,7 +493,9 @@
         .map((i) => {
           const it = { id: okId(i.id), text: i.text.slice(0, 200), done: !!i.done, lastDone: okDate(i.lastDone) };
           if (typeof i.link === "string" && /^[a-z0-9]{1,40}$/i.test(i.link)) it.link = i.link;
-          if (it.done && "prevLast" in i) it.prevLast = okDate(i.prevLast);
+          const okMin = (v) => (Number.isInteger(v) && v > 0 && v <= 1440 ? v : null);
+          it.lastMinutes = okMin(i.lastMinutes);
+          if (it.done && "prevLast" in i) { it.prevLast = okDate(i.prevLast); it.prevMinutes = okMin(i.prevMinutes); }
           if (it.done && i.doneAt) it.doneAt = okDate(i.doneAt);
           return it;
         });
@@ -483,15 +541,22 @@
     if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
     return d.toLocaleDateString("fr-FR", opts);
   }
+  function fmtMinutes(m) {
+    if (m < 60) return `${m} minute${m > 1 ? "s" : ""}`;
+    const h = Math.floor(m / 60), r = m % 60;
+    return r ? `${h} h ${pad(r)}` : `${h} heure${h > 1 ? "s" : ""}`;
+  }
+  // "Fait le 02/11/26 en 15 minutes"; the tooltip gives the full date and how long ago.
   function lastInfo(item, freq) {
     if (!item.lastDone) return { text: "Jamais fait", never: true, late: false, title: "" };
     const d = new Date(item.lastDone);
     const days = daysSince(d);
+    const day = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`;
     return {
-      text: `Dernière fois : ${dateLabel(d)} · ${agoLabel(days)}`,
+      text: `Fait le ${day}${item.lastMinutes ? ` en ${fmtMinutes(item.lastMinutes)}` : ""}`,
       never: false,
       late: days > freq.days,
-      title: d.toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" }),
+      title: `${d.toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })} · ${agoLabel(days)}`,
     };
   }
 
@@ -546,7 +611,9 @@
     // A shared task shows the last time either person did it.
     const lastByLink = new Map();
     for (const it of allItems(view)) {
-      if (it.link && it.lastDone && !(lastByLink.get(it.link) >= it.lastDone)) lastByLink.set(it.link, it.lastDone);
+      if (!it.link || !it.lastDone) continue;
+      const cur = lastByLink.get(it.link);
+      if (!cur || it.lastDone > cur.lastDone || (it.lastDone === cur.lastDone && !cur.lastMinutes && it.lastMinutes)) lastByLink.set(it.link, it);
     }
 
     for (const key of KEYS) {
@@ -562,16 +629,14 @@
         li.querySelector(".text").textContent = item.text;
         const last = li.querySelector(".last");
         const parts = item.link ? [`Avec ${partner}`] : [];
-        let info = null;
-        if (!item.done) {
-          info = lastInfo({ lastDone: item.link ? lastByLink.get(item.link) || null : item.lastDone }, freq);
-          parts.push(info.text);
-        }
-        last.hidden = parts.length === 0;
+        // Checked tasks show this time's date and duration; only unchecked ones can be late.
+        const info = lastInfo(item.link ? lastByLink.get(item.link) || { lastDone: null } : item, freq);
+        parts.push(info.text);
+        last.hidden = false;
         last.textContent = parts.join(" · ");
-        last.title = info ? info.title : "";
-        last.classList.toggle("never", !!info && info.never);
-        last.classList.toggle("late", !!info && info.late);
+        last.title = info.title;
+        last.classList.toggle("never", info.never);
+        last.classList.toggle("late", !item.done && info.late);
         li.dataset.link = item.link || "";
         const share = li.querySelector(".share");
         share.setAttribute("aria-pressed", String(!!item.link));
@@ -636,7 +701,7 @@
   });
   function resetKeys(s, keys) {
     for (const k of keys) {
-      s.lists[k].items.forEach((i) => { i.done = false; delete i.prevLast; delete i.doneAt; });
+      s.lists[k].items.forEach((i) => { i.done = false; delete i.prevLast; delete i.prevMinutes; delete i.doneAt; });
       s.lists[k].cycles += 1;
     }
   }
@@ -763,6 +828,8 @@
     state = clone(server.data);
     els.app.hidden = true;
     if (els.backupDlg.open) els.backupDlg.close();
+    askQueue.length = 0;
+    if (asking) closeAsk(null);
     els.gate.hidden = false;
     els.gateError.hidden = !message;
     els.gateError.textContent = message || "";
@@ -831,7 +898,9 @@
         for (const it of copies) {
           if (it.done) continue;
           it.prevLast = it.lastDone;
+          it.prevMinutes = it.lastMinutes || null;
           it.lastDone = now;
+          it.lastMinutes = null;
           it.done = true;
           it.doneAt = now;
         }
@@ -839,13 +908,73 @@
         const at = f.item.doneAt;
         for (const it of copies) {
           if (!it.done || (it !== f.item && (!at || it.doneAt !== at))) continue;
-          if ("prevLast" in it) { it.lastDone = it.prevLast; delete it.prevLast; }
+          if ("prevLast" in it) { it.lastDone = it.prevLast; it.lastMinutes = it.prevMinutes || null; delete it.prevLast; delete it.prevMinutes; }
           it.done = false;
           delete it.doneAt;
         }
       }
     }, { backup });
+    if (!found) return;
+    if (checked && !found.item.done) askDuration({ id, text: found.item.text, at: now });
+    else if (!checked) dropAsk(id);
   }
+
+  // Stores how long a check took, on every copy that this same check stamped.
+  function setMinutes(id, at, minutes) {
+    change((s) => {
+      const f = findItem(s, id);
+      if (!f) return;
+      const copies = f.item.link ? copiesOf(s, f.item.link).map((c) => c.item) : [f.item];
+      for (const it of copies) if (it.lastDone === at) it.lastMinutes = minutes;
+    });
+  }
+
+  /* ---------- "Combien de temps ?" after each check ---------- */
+
+  const askQueue = [];
+  let asking = null;
+  function askDuration(entry) { askQueue.push(entry); showNextAsk(); }
+  function dropAsk(id) {
+    for (let i = askQueue.length - 1; i >= 0; i--) if (askQueue[i].id === id) askQueue.splice(i, 1);
+    if (asking && asking.id === id) closeAsk(null);
+  }
+  function showNextAsk() {
+    if (asking || celebrating || !askQueue.length || els.app.hidden) return;
+    asking = askQueue.shift();
+    els.askTitle.textContent = `Combien de temps pour « ${short(asking.text)} » ?`;
+    els.askInput.value = "";
+    els.ask.hidden = false;
+    document.body.style.setProperty("--ask-h", `${els.ask.offsetHeight}px`);
+    document.body.classList.add("asking");
+    void els.ask.offsetWidth;
+    els.ask.classList.add("show");
+    els.askChips.querySelector("button").focus({ preventScroll: true });
+  }
+  function closeAsk(minutes) {
+    const current = asking;
+    asking = null;
+    els.ask.classList.remove("show");
+    document.body.classList.remove("asking");
+    setTimeout(() => { if (!els.ask.classList.contains("show")) els.ask.hidden = true; }, 220);
+    if (current && minutes) setMinutes(current.id, current.at, minutes);
+    if (current && els.ask.contains(document.activeElement)) {
+      const cb = els.cols.querySelector(`.item[data-id="${current.id}"] .check`);
+      if (cb) cb.focus({ preventScroll: true });
+    }
+    setTimeout(showNextAsk, 250);
+  }
+  els.askChips.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-min]");
+    if (b) closeAsk(Number(b.dataset.min));
+  });
+  els.askForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const m = Math.round(Number(els.askInput.value));
+    if (!Number.isFinite(m) || m < 1 || m > 1440) { els.askInput.focus(); els.askInput.select(); return; }
+    closeAsk(m);
+  });
+  els.askSkip.addEventListener("click", () => closeAsk(null));
+  els.ask.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); closeAsk(null); } });
 
   function addItem(key, text, shared) {
     if (!shared) {
@@ -1086,6 +1215,7 @@
     hideGif();
     celebrating = false;
     render({ resetting: pendingReset });
+    showNextAsk();
   }
   els.party.addEventListener("click", endCelebration);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !els.party.hidden) endCelebration(); });
@@ -1153,7 +1283,9 @@
       const L = state.lists[k];
       lines.push("", `## ${subLabel(k)}`, `# Cycles : ${L.cycles}`);
       L.items.forEach((i) => {
-        const when = i.lastDone ? `dernière fois : ${stamp(new Date(i.lastDone))}` : "jamais fait";
+        const when = i.lastDone
+          ? `dernière fois : ${stamp(new Date(i.lastDone))}${i.lastMinutes ? ` (${i.lastMinutes} min)` : ""}`
+          : "jamais fait";
         lines.push(`- [${i.done ? "x" : " "}] ${i.text}${i.link ? " (à deux)" : ""} — ${when}`);
       });
     }
@@ -1211,17 +1343,19 @@
       const m = line.match(/^[-*]\s*\[([ xX])\]\s*(.+)$/);
       let body = (m ? m[2] : line.replace(/^[-*]\s+/, "")).trim();
       let lastDone = null;
-      const dm = body.match(/\s+[—–-]\s+(?:derni[eè]re fois\s*:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?|jamais fait)\s*$/i);
+      let lastMinutes = null;
+      const dm = body.match(/\s+[—–-]\s+(?:derni[eè]re fois\s*:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?(?:\s*\((\d{1,4})\s*min\))?|jamais fait)\s*$/i);
       if (dm) {
         body = body.slice(0, dm.index).trim();
         if (dm[1]) lastDone = new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] || 12), +(dm[5] || 0)).toISOString();
+        if (dm[6] && +dm[6] >= 1 && +dm[6] <= 1440) lastMinutes = +dm[6];
       }
       let shared = false;
       const pm = body.match(/\s*\(\s*[àa] deux\s*\)\s*$/i);
       if (pm) { shared = true; body = body.slice(0, pm.index).trim(); }
       const t = body.replace(/\s+/g, " ").slice(0, 200);
       if (!t) continue;
-      const it = { id: newId() + count, text: t, done: !!m && m[1] !== " ", lastDone };
+      const it = { id: newId() + count, text: t, done: !!m && m[1] !== " ", lastDone, lastMinutes };
       if (shared) it.shared = true;
       lists[cur].items.push(it);
       found = true;
@@ -1235,11 +1369,11 @@
         const mate = b.items.find((j) => j.shared && !j.link && norm(j.text) === norm(i.text));
         i.link = newId() + "l";
         if (mate) mate.link = i.link;
-        else b.items.push({ id: i.id + "m", text: i.text, done: i.done, lastDone: i.lastDone, link: i.link });
+        else b.items.push({ id: i.id + "m", text: i.text, done: i.done, lastDone: i.lastDone, lastMinutes: i.lastMinutes, link: i.link });
       });
       b.items.filter((j) => j.shared && !j.link).forEach((j) => {
         j.link = newId() + "r";
-        a.items.push({ id: j.id + "m", text: j.text, done: j.done, lastDone: j.lastDone, link: j.link });
+        a.items.push({ id: j.id + "m", text: j.text, done: j.done, lastDone: j.lastDone, lastMinutes: j.lastMinutes, link: j.link });
       });
       [a, b].forEach((L) => L.items.forEach((i) => { delete i.shared; }));
     });

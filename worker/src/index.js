@@ -5,15 +5,21 @@ import { DurableObject } from "cloudflare:workers";
 // password; only its SHA-256 hash is stored, as the PASSWORD_HASH secret.
 //
 // GET  /state           -> { version, data, updatedAt }
-// PUT  /state           <- { baseVersion, data }  -> 200 { version, updatedAt } | 409 { version, data, updatedAt }
+// PUT  /state           <- { baseVersion, data, backup? }  -> 200 { version, updatedAt, backup? } | 409 { version, data, updatedAt }
+//                          `backup` (a label) also stores the new list as a named backup, in the same step.
+// GET  /backups         -> the backups, newest first: { id, createdAt, label, version, tasks }
+// POST /backups         <- { label }  -> backs up the current list as it is now
+// GET  /backups/<id>    -> one backup, with its list
 // GET  /history         -> the 50 latest previous versions (number and date), to recover from a mistake
 // GET  /history/<n>     -> one previous version
 
 const MAX_BYTES = 512 * 1024;
 const HISTORY_KEEP = 200;
+const BACKUPS_KEEP = 300;
+const MAX_LABEL = 160;
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
   "Access-Control-Max-Age": "86400",
 };
@@ -28,7 +34,21 @@ export class MenageStore extends DurableObject {
       ctx.storage.sql.exec(
         "CREATE TABLE IF NOT EXISTS history (version INTEGER PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL)"
       );
+      ctx.storage.sql.exec(
+        "CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, label TEXT NOT NULL, version INTEGER NOT NULL, tasks INTEGER NOT NULL, data TEXT NOT NULL)"
+      );
     });
+  }
+
+  addBackup(label, version, dataText, now) {
+    const sql = this.ctx.storage.sql;
+    const tasks = countTasks(dataText);
+    const id = sql.exec(
+      "INSERT INTO backups (created_at, label, version, tasks, data) VALUES (?, ?, ?, ?, ?) RETURNING id",
+      now, label, version, tasks, dataText
+    ).one().id;
+    sql.exec("DELETE FROM backups WHERE id <= ?", id - BACKUPS_KEEP);
+    return { id, createdAt: now, label, version, tasks };
   }
 
   read() {
@@ -38,8 +58,8 @@ export class MenageStore extends DurableObject {
       : { version: 0, data: null, updatedAt: null };
   }
 
-  // No await in here: the version check and the write happen as one step.
-  write(baseVersion, dataText) {
+  // No await in here: the version check, the write and the backup happen as one step.
+  write(baseVersion, dataText, backupLabel) {
     const sql = this.ctx.storage.sql;
     const row = sql.exec("SELECT version, data, updated_at FROM doc WHERE id = 1").toArray()[0];
     const current = row ? row.version : 0;
@@ -55,7 +75,29 @@ export class MenageStore extends DurableObject {
       version, dataText, now
     );
     sql.exec("DELETE FROM history WHERE version <= ?", version - HISTORY_KEEP);
-    return { ok: true, version, updatedAt: now };
+    const backup = backupLabel ? this.addBackup(backupLabel, version, dataText, now) : undefined;
+    return { ok: true, version, updatedAt: now, backup };
+  }
+
+  backupNow(label) {
+    const row = this.ctx.storage.sql.exec("SELECT version, data FROM doc WHERE id = 1").toArray()[0];
+    if (!row) return null;
+    return this.addBackup(label, row.version, row.data, new Date().toISOString());
+  }
+
+  listBackups() {
+    return this.ctx.storage.sql.exec(
+      "SELECT id, created_at AS createdAt, label, version, tasks FROM backups ORDER BY id DESC LIMIT ?", BACKUPS_KEEP
+    ).toArray();
+  }
+
+  getBackup(id) {
+    const row = this.ctx.storage.sql.exec(
+      "SELECT id, created_at, label, version, tasks, data FROM backups WHERE id = ?", id
+    ).toArray()[0];
+    return row
+      ? { id: row.id, createdAt: row.created_at, label: row.label, version: row.version, tasks: row.tasks, data: JSON.parse(row.data) }
+      : null;
   }
 
   history() {
@@ -67,6 +109,17 @@ export class MenageStore extends DurableObject {
     return row ? { version: row.version, data: JSON.parse(row.data), updatedAt: row.updated_at } : null;
   }
 }
+
+function countTasks(dataText) {
+  try {
+    const lists = JSON.parse(dataText).lists || {};
+    return Object.values(lists).reduce((n, l) => n + (l && Array.isArray(l.items) ? l.items.length : 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+const cleanLabel = (v) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, MAX_LABEL) : "");
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -94,7 +147,8 @@ export default {
     const { pathname } = new URL(request.url);
     const isState = pathname === "/state";
     const historyMatch = pathname.match(/^\/history(?:\/(\d+))?$/);
-    if (!isState && !historyMatch) return json({ error: "not_found" }, 404);
+    const backupsMatch = pathname.match(/^\/backups(?:\/(\d+))?$/);
+    if (!isState && !historyMatch && !backupsMatch) return json({ error: "not_found" }, 404);
 
     if (!(await authorized(request, env))) {
       await new Promise((r) => setTimeout(r, 400)); // slows down password guessing
@@ -102,6 +156,22 @@ export default {
     }
 
     const store = env.STORE.getByName("menage");
+
+    if (backupsMatch) {
+      if (backupsMatch[1]) {
+        if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+        const backup = await store.getBackup(Number(backupsMatch[1]));
+        return backup ? json(backup) : json({ error: "not_found" }, 404);
+      }
+      if (request.method === "GET") return json(await store.listBackups());
+      if (request.method === "POST") {
+        let body = {};
+        try { body = JSON.parse((await request.text()) || "{}"); } catch { return json({ error: "bad_json" }, 400); }
+        const backup = await store.backupNow(cleanLabel(body.label) || "Sauvegarde");
+        return backup ? json(backup, 201) : json({ error: "empty" }, 409);
+      }
+      return json({ error: "method_not_allowed" }, 405);
+    }
 
     if (historyMatch) {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
@@ -120,9 +190,9 @@ export default {
       if (!body || !Number.isInteger(body.baseVersion) || !body.data || typeof body.data !== "object" || Array.isArray(body.data)) {
         return json({ error: "bad_request" }, 400);
       }
-      const result = await store.write(body.baseVersion, JSON.stringify(body.data));
+      const result = await store.write(body.baseVersion, JSON.stringify(body.data), cleanLabel(body.backup) || null);
       return result.ok
-        ? json({ version: result.version, updatedAt: result.updatedAt })
+        ? json({ version: result.version, updatedAt: result.updatedAt, backup: result.backup })
         : json({ error: "conflict", ...result.current }, 409);
     }
 

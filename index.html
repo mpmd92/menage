@@ -168,8 +168,33 @@
   .ghost.is-armed, .ghost.is-armed:hover { color: var(--danger); font-weight: 600; }
   .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   .status { margin: 0; font-size: .85rem; color: var(--danger); }
-  .autosave { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: .85rem; color: var(--muted); }
-  .autosave span { min-width: 0; overflow-wrap: anywhere; }
+  .backup-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: .85rem; color: var(--muted); }
+  .backup-line span { min-width: 0; overflow-wrap: anywhere; }
+
+  /* Online backups dialog */
+  .dlg {
+    width: min(32rem, calc(100vw - 32px)); max-height: min(80vh, 40rem); padding: 0;
+    border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink);
+    box-shadow: 0 20px 60px rgb(0 0 0 / .2);
+  }
+  .dlg::backdrop { background: var(--scrim); }
+  .dlg-inner { display: flex; flex-direction: column; gap: 12px; padding: 18px 20px 20px; max-height: min(80vh, 40rem); }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .dlg h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 1.25rem; letter-spacing: -.01em; }
+  .dlg-close {
+    flex: none; width: 36px; height: 36px; border: 0; border-radius: 8px; background: none; color: var(--muted);
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .dlg-close:hover { color: var(--ink); background: var(--bg); }
+  .dlg-close:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .dlg-note { margin: 0; font-size: .88rem; color: var(--muted); }
+  .dlg .ghost { align-self: flex-start; }
+  .bk-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; border-top: 1px solid var(--line); }
+  .bk-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .bk-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .bk-date { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bk-label { font-size: .82rem; color: var(--muted); overflow-wrap: anywhere; }
+  .bk-empty { margin: 0; font-size: .9rem; color: var(--muted); }
 
   /* Toast */
   .toast {
@@ -247,16 +272,15 @@
       <button type="button" class="ghost quiet" id="lockBtn">Verrouiller cet appareil</button>
     </div>
     <div class="file-actions">
-      <button type="button" class="ghost quiet" id="saveBtn">Sauvegarder la liste</button>
-      <button type="button" class="ghost quiet" id="loadBtn">Charger une sauvegarde</button>
+      <button type="button" class="ghost quiet" id="saveBtn">Exporter en fichier</button>
+      <button type="button" class="ghost quiet" id="loadBtn">Importer un fichier</button>
       <input type="file" id="loadFile" accept=".txt,.md,text/plain" hidden>
     </div>
   </div>
 
-  <p class="autosave" id="autosave" hidden>
-    <span id="autoText"></span>
-    <button type="button" class="ghost quiet" id="autoPick">Choisir un fichier</button>
-    <button type="button" class="ghost quiet" id="autoOff" hidden>Désactiver</button>
+  <p class="backup-line">
+    <span id="backupText">Sauvegarde en ligne à chaque liste terminée</span>
+    <button type="button" class="ghost quiet" id="backupOpen">Voir les sauvegardes</button>
   </p>
 
   <p class="status" id="status" role="status" hidden></p>
@@ -271,6 +295,19 @@
     <button type="submit" id="gateBtn">Ouvrir</button>
   </form>
 </div>
+
+<dialog class="dlg" id="backupDlg" aria-labelledby="backupTitle">
+  <div class="dlg-inner">
+    <div class="dlg-head">
+      <h2 id="backupTitle">Sauvegardes en ligne</h2>
+      <button type="button" class="dlg-close" id="backupClose" aria-label="Fermer"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button>
+    </div>
+    <p class="dlg-note">Faites à chaque liste terminée, et avant une restauration, un import ou une réinitialisation.</p>
+    <button type="button" class="ghost" id="backupNow">Créer une sauvegarde maintenant</button>
+    <ul class="bk-list" id="backupList"></ul>
+    <p class="bk-empty" id="backupEmpty" hidden>Aucune sauvegarde pour l'instant.</p>
+  </div>
+</dialog>
 
 <div class="party" id="party" hidden>
   <div class="party-card">
@@ -321,7 +358,8 @@
     gate: $("gate"), gateForm: $("gateForm"), gatePw: $("gatePw"), gateError: $("gateError"), gateBtn: $("gateBtn"),
     status: $("status"), toast: $("toast"), toastText: $("toastText"), toastUndo: $("toastUndo"),
     party: $("party"), partyGif: $("partyGif"),
-    autosave: $("autosave"), autoText: $("autoText"), autoPick: $("autoPick"), autoOff: $("autoOff"),
+    backupText: $("backupText"), backupOpen: $("backupOpen"), backupDlg: $("backupDlg"), backupClose: $("backupClose"),
+    backupNow: $("backupNow"), backupList: $("backupList"), backupEmpty: $("backupEmpty"),
   };
 
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -537,7 +575,7 @@
   // Replays changes on top of a list, as `change` did, so they survive someone else's edit.
   function replay(base, ops) {
     const s = clone(base);
-    for (const op of ops) { op(s); resetKeys(s, completedKeys(s)); }
+    for (const p of ops) { p.op(s); resetKeys(s, completedKeys(s)); }
     return s;
   }
 
@@ -552,18 +590,18 @@
       resetKeys(next, completed);
     }
     state = next;
-    pending.push(mutate);
+    // A finished list is backed up online, in the same request that saves it.
+    pending.push({ op: mutate, backup: completed.length ? `Liste terminée : ${completed.map(subLabel).join(", ")}` : null });
     render();
     push();
-    if (completed.length && auto) writeAuto();
   }
 
   /* ---------- Sync with the Worker ---------- */
 
   let pushing = false, retryTimer = null, retryDelay = 2000, offline = false;
 
-  function api(method, body) {
-    return fetch(`${API_URL}/state`, {
+  function api(method, body, path = "/state") {
+    return fetch(`${API_URL}${path}`, {
       method,
       cache: "no-store",
       headers: {
@@ -590,7 +628,8 @@
       while (pending.length) {
         const ops = pending.slice();
         const data = replay(server.data, ops);
-        const res = await api("PUT", { baseVersion: server.version, data });
+        const labels = ops.map((p) => p.backup).filter(Boolean);
+        const res = await api("PUT", { baseVersion: server.version, data, ...(labels.length ? { backup: labels.join(" · ") } : {}) });
         if (res.status === 401) { lock("Le mot de passe a changé. Entrez le nouveau mot de passe."); return; }
         if (res.status === 409) {
           // Someone else saved first: take their list and replay our changes on it.
@@ -603,6 +642,7 @@
         server = { version: body.version, data };
         pending.splice(0, ops.length);
         saveCache();
+        if (body.backup) showLastBackup(body.backup.createdAt);
       }
       retryDelay = 2000;
       setOffline(false);
@@ -642,6 +682,7 @@
     els.gate.hidden = true;
     els.app.hidden = false;
     render();
+    loadBackups().catch(() => {});
   }
   function lock(message) {
     password = null;
@@ -651,6 +692,7 @@
     server = { version: 0, data: sanitize(null) };
     state = clone(server.data);
     els.app.hidden = true;
+    if (els.backupDlg.open) els.backupDlg.close();
     els.gate.hidden = false;
     els.gateError.hidden = !message;
     els.gateError.textContent = message || "";
@@ -982,7 +1024,7 @@
         const w = await handle.createWritable();
         await w.write(blob);
         await w.close();
-        showToast(`Liste sauvegardée dans « ${handle.name} »`);
+        showToast(`Liste exportée dans « ${handle.name} »`);
         return;
       } catch (e) {
         if (e && e.name === "AbortError") return;
@@ -1038,111 +1080,130 @@
     try { text = await file.text(); } catch { showToast("Impossible de lire ce fichier."); return; }
     const parsed = parseBackup(text);
     if (!parsed) { showToast("Ce fichier ne contient aucune tâche de Ménage."); return; }
+    await backupNow("Avant l'import d'un fichier");
     const before = clone(state);
     const n = KEYS.reduce((sum, k) => sum + parsed.lists[k].items.length, 0);
     change((s) => { s.lists = parsed.lists; });
-    showToast(`Sauvegarde chargée : ${plural(n, "tâche")}`, () => { change((s) => { s.lists = before.lists; }); });
+    showToast(`Fichier importé : ${plural(n, "tâche")}`, () => { change((s) => { s.lists = before.lists; }); });
   }
 
-  /* ---------- Auto-save: one chosen file, overwritten each time a sub-list is finished ---------- */
+  /* ---------- Online backups ---------- */
 
-  // The file handle is kept in IndexedDB so the choice survives a reload. After a reload Chrome
-  // may ask once for permission to write; that request happens on the click that finishes a list.
-  const AUTO_KEY = "autosave";
-  const canAutoSave = typeof window.showSaveFilePicker === "function" && "indexedDB" in window;
-  let auto = null; // { handle, lastAt }
+  const fmtStamp = (iso) => {
+    const d = new Date(iso);
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} à ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  function showLastBackup(iso) {
+    els.backupText.textContent = iso
+      ? `Sauvegarde en ligne à chaque liste terminée · dernière le ${fmtStamp(iso)}`
+      : "Sauvegarde en ligne à chaque liste terminée";
+  }
 
-  function idb(mode, fn) {
-    return new Promise((resolve, reject) => {
-      const open = indexedDB.open("menage", 1);
-      open.onupgradeneeded = () => open.result.createObjectStore("kv");
-      open.onerror = () => reject(open.error);
-      open.onsuccess = () => {
-        const db = open.result;
-        let req;
-        try {
-          const tx = db.transaction("kv", mode);
-          tx.oncomplete = () => { db.close(); resolve(req && req.result); };
-          tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
-          req = fn(tx.objectStore("kv"));
-        } catch (e) { db.close(); reject(e); }
-      };
+  // Waits (a few seconds at most) until every local change has reached the Worker.
+  function flush() {
+    push();
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const tick = () => ((!pending.length && !pushing) || Date.now() - t0 > 8000 ? resolve() : setTimeout(tick, 150));
+      tick();
     });
   }
 
-  function renderAuto() {
-    if (!canAutoSave) { els.autosave.hidden = true; return; }
-    els.autosave.hidden = false;
-    if (!auto) {
-      els.autoText.textContent = "Sauvegarde auto désactivée";
-      els.autoPick.textContent = "Choisir un fichier";
-      els.autoOff.hidden = true;
-      return;
-    }
-    const d = auto.lastAt ? new Date(auto.lastAt) : null;
-    const last = d ? ` · dernière le ${pad(d.getDate())}/${pad(d.getMonth() + 1)} à ${pad(d.getHours())}:${pad(d.getMinutes())}` : "";
-    els.autoText.textContent = `Sauvegarde auto à chaque liste terminée dans « ${auto.handle.name} »${last}`;
-    els.autoPick.textContent = "Changer de fichier";
-    els.autoOff.hidden = false;
+  // Backs up the list as the Worker has it now. Never blocks what comes next if it fails.
+  async function backupNow(label) {
+    try {
+      await flush();
+      const res = await api("POST", { label }, "/backups");
+      if (res.status === 201) { const b = await res.json(); showLastBackup(b.createdAt); return b; }
+    } catch {}
+    return null;
   }
 
-  async function writeAuto() {
-    const current = auto;
-    if (!current) return false;
+  async function loadBackups() {
+    const res = await api("GET", null, "/backups");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const list = await res.json();
+    showLastBackup(list.length ? list[0].createdAt : null);
+    return list;
+  }
+
+  function renderBackups(list) {
+    els.backupList.textContent = "";
+    els.backupEmpty.hidden = list.length > 0;
+    for (const b of list) {
+      const li = document.createElement("li");
+      const meta = document.createElement("div");
+      meta.className = "bk-meta";
+      const date = document.createElement("span");
+      date.className = "bk-date";
+      date.textContent = fmtStamp(b.createdAt);
+      const label = document.createElement("span");
+      label.className = "bk-label";
+      label.textContent = `${b.label} · ${plural(b.tasks, "tâche")}`;
+      meta.append(date, label);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ghost quiet";
+      btn.textContent = "Restaurer";
+      btn.dataset.id = String(b.id);
+      btn.dataset.stamp = fmtStamp(b.createdAt);
+      li.append(meta, btn);
+      els.backupList.append(li);
+    }
+  }
+
+  async function openBackups() {
+    els.backupList.textContent = "";
+    els.backupEmpty.hidden = false;
+    els.backupEmpty.textContent = "Chargement…";
+    if (!els.backupDlg.open) els.backupDlg.showModal();
     try {
-      let perm = "granted";
-      if (typeof current.handle.queryPermission === "function") {
-        perm = await current.handle.queryPermission({ mode: "readwrite" });
-        if (perm !== "granted") perm = await current.handle.requestPermission({ mode: "readwrite" });
-      }
-      if (perm !== "granted") {
-        showToast(`Sauvegarde auto non faite : Chrome n'a pas reçu l'autorisation d'écrire dans « ${current.handle.name} ».`);
-        return false;
-      }
-      const w = await current.handle.createWritable(); // replaces the file's content on close
-      await w.write(new Blob([backupText()], { type: "text/plain;charset=utf-8" }));
-      await w.close();
-      current.lastAt = new Date().toISOString();
-      await idb("readwrite", (st) => st.put(current, AUTO_KEY)).catch(() => {});
-      renderAuto();
-      return true;
+      await flush();
+      const list = await loadBackups();
+      els.backupEmpty.textContent = "Aucune sauvegarde pour l'instant.";
+      renderBackups(list);
     } catch {
-      showToast(`Sauvegarde auto impossible dans « ${current.handle.name} ». Choisissez à nouveau le fichier.`);
-      return false;
+      els.backupEmpty.textContent = "Impossible de charger les sauvegardes. Vérifiez la connexion Internet.";
     }
   }
 
-  async function chooseAutoFile() {
-    let handle;
-    try {
-      handle = await window.showSaveFilePicker({
-        id: "menage-autosave",
-        suggestedName: "sauvegarde-menage.txt",
-        types: [{ description: "Sauvegarde Ménage", accept: { "text/plain": [".txt"] } }],
-      });
-    } catch (e) {
-      if (!e || e.name !== "AbortError") showToast("Impossible d'utiliser ce fichier pour la sauvegarde auto.");
+  // Two clicks to restore: the first arms the button, the second confirms.
+  els.backupList.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-id]");
+    if (!btn || celebrating) return;
+    if (!btn.classList.contains("is-armed")) {
+      els.backupList.querySelectorAll("button.is-armed").forEach((b) => { b.classList.remove("is-armed"); b.textContent = "Restaurer"; });
+      btn.classList.add("is-armed");
+      btn.textContent = "Confirmer";
+      setTimeout(() => { if (btn.isConnected) { btn.classList.remove("is-armed"); btn.textContent = "Restaurer"; } }, 4000);
       return;
     }
-    auto = { handle, lastAt: null };
-    renderAuto();
-    if (await writeAuto()) showToast(`Sauvegarde auto activée dans « ${handle.name} »`);
-  }
-
-  els.autoPick.addEventListener("click", chooseAutoFile);
-  els.autoOff.addEventListener("click", () => {
-    auto = null;
-    idb("readwrite", (st) => st.delete(AUTO_KEY)).catch(() => {});
-    renderAuto();
-    showToast("Sauvegarde auto désactivée. Le fichier existant n'est pas supprimé.");
+    btn.disabled = true;
+    try {
+      const res = await api("GET", null, `/backups/${btn.dataset.id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const backup = await res.json();
+      await backupNow(`Avant la restauration de la sauvegarde du ${btn.dataset.stamp}`);
+      const restored = sanitize(backup.data).lists;
+      const before = clone(state);
+      change((s) => { s.lists = restored; });
+      els.backupDlg.close();
+      showToast(`Sauvegarde du ${btn.dataset.stamp} restaurée`, () => { change((s) => { s.lists = before.lists; }); });
+    } catch {
+      btn.disabled = false;
+      showToast("Restauration impossible. Vérifiez la connexion Internet, puis réessayez.");
+    }
   });
 
-  if (canAutoSave) {
-    idb("readonly", (st) => st.get(AUTO_KEY))
-      .then((saved) => { if (saved && saved.handle) auto = saved; })
-      .catch(() => {})
-      .finally(renderAuto);
-  }
+  els.backupOpen.addEventListener("click", openBackups);
+  els.backupClose.addEventListener("click", () => els.backupDlg.close());
+  els.backupNow.addEventListener("click", async () => {
+    els.backupNow.disabled = true;
+    const b = await backupNow("Sauvegarde manuelle");
+    els.backupNow.disabled = false;
+    if (!b) { showToast("Sauvegarde impossible. Vérifiez la connexion Internet."); return; }
+    openBackups();
+  });
 
   /* ---------- Toast ---------- */
 
@@ -1207,7 +1268,7 @@
     els.reset.textContent = "Réinitialiser tout";
     els.reset.classList.remove("is-armed");
   }
-  els.reset.addEventListener("click", () => {
+  els.reset.addEventListener("click", async () => {
     if (celebrating) return;
     if (!resetArmed) {
       resetArmed = true;
@@ -1217,6 +1278,7 @@
       return;
     }
     disarmReset();
+    await backupNow("Avant la réinitialisation");
     const before = clone(state);
     const n = allItems(before).length;
     change((s) => { KEYS.forEach((k) => { s.lists[k] = { items: [], cycles: 0 }; }); });

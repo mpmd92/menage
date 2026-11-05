@@ -55,12 +55,12 @@
   .app.is-wide { max-width: 72rem; }
 
   /* Header: title and view tabs */
-  .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+  .head { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
   h1 { font-family: var(--f-display); font-weight: 700; font-size: 1.8rem; letter-spacing: -.02em; line-height: 1.1; margin: 0; }
-  .tabs { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
   .tab {
     font: inherit; font-size: .92rem; font-weight: 600; color: var(--muted); cursor: pointer;
-    padding: 7px 14px; border: 0; border-radius: 8px; background: none; transition: background-color .15s, color .15s;
+    padding: 7px 10px; border: 0; border-radius: 8px; background: none; transition: background-color .15s, color .15s; white-space: nowrap;
   }
   .tab:hover { color: var(--ink); }
   .tab[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
@@ -258,6 +258,15 @@
   .add-store:hover { border-color: var(--accent); }
   .add-store:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .shop-empty { margin: 0; color: var(--muted); font-size: .95rem; }
+  .item.usual .row { cursor: default; }
+  .to-list {
+    flex: none; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+    padding: 5px 12px; border: 1px solid var(--accent); border-radius: 999px; background: none; color: var(--accent);
+    transition: background-color .15s, color .15s;
+  }
+  .to-list:hover { background: var(--accent); color: var(--on-accent); }
+  .to-list.in-list, .to-list.in-list:hover { border-color: var(--line); background: var(--bg); color: var(--muted); cursor: default; }
+  .to-list:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .shop-empty strong { color: var(--ink); font-weight: 600; }
 
   /* "Combien de temps ?" panel, shown after each check */
@@ -340,7 +349,8 @@
       <button type="button" class="tab" data-view="paul" aria-pressed="true">Paul</button>
       <button type="button" class="tab" data-view="marguerite" aria-pressed="false">Marguerite</button>
       <button type="button" class="tab" data-view="all" aria-pressed="false">Vue globale</button>
-      <button type="button" class="tab" data-view="courses" aria-pressed="false">Courses</button>
+      <button type="button" class="tab" data-view="courses" aria-pressed="false">Courses à faire</button>
+      <button type="button" class="tab" data-view="habituelles" aria-pressed="false">Courses habituelles</button>
     </div>
     <p class="sr-only" id="announce" aria-live="polite"></p>
   </header>
@@ -558,6 +568,10 @@
             if (it.done) it.doneAt = okDate(i.doneAt);
             return it;
           }),
+        // Articles bought regularly, shown in the "Courses habituelles" tab
+        usual: (Array.isArray(st.usual) ? st.usual : [])
+          .filter((i) => i && typeof i.text === "string")
+          .map((i) => ({ id: okId(i.id), text: i.text.slice(0, 200) })),
       }));
     return { lists, shopping: { stores } };
   }
@@ -736,8 +750,8 @@
 
   let viewName = store.get(VIEW_KEY) || "paul";
   function applyView() {
-    if (!["paul", "marguerite", "all", "courses"].includes(viewName)) viewName = "paul";
-    const shopping = viewName === "courses";
+    if (!["paul", "marguerite", "all", "courses", "habituelles"].includes(viewName)) viewName = "paul";
+    const shopping = viewName === "courses" || viewName === "habituelles";
     els.cols.hidden = shopping;
     els.shop.hidden = !shopping;
     els.reset.hidden = shopping;
@@ -752,6 +766,7 @@
     viewName = t.dataset.view;
     store.set(VIEW_KEY, viewName);
     applyView();
+    render();
   }));
 
   /* ---------- State changes ---------- */
@@ -1359,6 +1374,10 @@
     for (const st of state.shopping.stores) {
       lines.push("", `## Courses · ${st.name}`);
       st.items.filter((i) => !shopExpired(i)).forEach((i) => lines.push(`- [${i.done ? "x" : " "}] ${i.text}`));
+      if (st.usual.length) {
+        lines.push("", `## Courses habituelles · ${st.name}`);
+        st.usual.forEach((i) => lines.push(`- ${i.text}`));
+      }
     }
     lines.push("");
     return lines.join("\n");
@@ -1403,18 +1422,24 @@
     KEYS.forEach((k) => { lists[k] = { items: [], cycles: 0 }; });
     const byLabel = new Map(KEYS.map((k) => [norm(subLabel(k)), k]));
     let cur = null, count = 0, found = false;
-    let shopCur = null, shopping = null; // "## Courses · Store" sections, when the file has any
+    let shopCur = null, shopTarget = "items", shopping = null; // "## Courses · Store" sections, when the file has any
     const now = new Date().toISOString();
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
       if (!line) continue;
       const heading = line.match(/^##\s+(.+)$/);
       if (heading) {
-        const shop = heading[1].match(/^courses\s*[·:–—-]\s*(.+)$/i);
+        const usual = heading[1].match(/^courses habituelles\s*[·:–—-]\s*(.+)$/i);
+        const shop = usual || heading[1].match(/^courses\s*[·:–—-]\s*(.+)$/i);
         if (shop) {
           shopping = shopping || { stores: [] };
-          shopCur = { id: newId() + "s" + shopping.stores.length, name: shop[1].trim().slice(0, 60), items: [] };
-          shopping.stores.push(shopCur);
+          const name = shop[1].trim().slice(0, 60);
+          shopCur = shopping.stores.find((x) => sameText(x.name, name));
+          if (!shopCur) {
+            shopCur = { id: newId() + "s" + shopping.stores.length, name, items: [], usual: [] };
+            shopping.stores.push(shopCur);
+          }
+          shopTarget = usual ? "usual" : "items";
           cur = null;
           found = true;
         } else {
@@ -1429,7 +1454,8 @@
         const t = (sm ? sm[2] : line.replace(/^[-*]\s+/, "")).replace(/\s+/g, " ").trim().slice(0, 200);
         if (!t) continue;
         const done = !!sm && sm[1] !== " ";
-        shopCur.items.push(done ? { id: newId() + "i" + count, text: t, done, doneAt: now } : { id: newId() + "i" + count, text: t, done });
+        if (shopTarget === "usual") shopCur.usual.push({ id: newId() + "u" + count, text: t });
+        else shopCur.items.push(done ? { id: newId() + "i" + count, text: t, done, doneAt: now } : { id: newId() + "i" + count, text: t, done });
         if (++count >= MAX_ITEMS) break;
         continue;
       }
@@ -1498,10 +1524,12 @@
   // it is hidden at once when the hour is up, and whichever page is open deletes it.
   const SHOP_TTL = 60 * 60 * 1000;
   const shopExpired = (i, now = Date.now()) => i.done && !!i.doneAt && now - Date.parse(i.doneAt) >= SHOP_TTL;
-  function findShop(s, id) {
+  const shopField = () => (viewName === "habituelles" ? "usual" : "items");
+  const sameText = (a, b) => norm(a) === norm(b);
+  function findShop(s, id, field = "items") {
     for (const st of s.shopping.stores) {
-      const index = st.items.findIndex((i) => i.id === id);
-      if (index >= 0) return { store: st, index, item: st.items[index] };
+      const index = st[field].findIndex((i) => i.id === id);
+      if (index >= 0) return { store: st, index, item: st[field][index] };
     }
     return null;
   }
@@ -1524,6 +1552,19 @@
       '</form>';
     return sec;
   }
+  function makeUsualItem(id) {
+    const li = document.createElement("li");
+    li.className = "item usual";
+    li.dataset.id = id;
+    li.draggable = true;
+    li.innerHTML =
+      `<span class="item-grip" aria-hidden="true">${GRIP_SVG}</span>` +
+      '<div class="row"><span class="txt"><span class="text"></span></span></div>' +
+      '<button type="button" class="to-list"></button>' +
+      `<button type="button" class="edit">${PEN_SVG}</button>` +
+      `<button type="button" class="del">${X_SVG}</button>`;
+    return li;
+  }
   function makeShopItem(id) {
     const li = document.createElement("li");
     li.className = "item";
@@ -1539,13 +1580,14 @@
 
   function paintShop(view) {
     const now = Date.now();
+    const usualMode = viewName === "habituelles";
     const stores = view.shopping.stores;
     const storeIds = new Set(stores.map((st) => st.id));
     [...els.stores.children].forEach((sec) => { if (!storeIds.has(sec.dataset.id)) sec.remove(); });
-    const visible = new Set(stores.flatMap((st) => st.items.filter((i) => !shopExpired(i, now)).map((i) => i.id)));
+    const visible = new Set(stores.flatMap((st) => (usualMode ? st.usual : st.items.filter((i) => !shopExpired(i, now))).map((i) => i.id)));
     const itemEls = new Map();
     els.stores.querySelectorAll(".item").forEach((li) => {
-      if (visible.has(li.dataset.id)) itemEls.set(li.dataset.id, li); else li.remove();
+      if (visible.has(li.dataset.id) && li.classList.contains("usual") === usualMode) itemEls.set(li.dataset.id, li); else li.remove();
     });
     const secEls = new Map([...els.stores.children].map((sec) => [sec.dataset.id, sec]));
     stores.forEach((st, si) => {
@@ -1556,9 +1598,29 @@
       name.setAttribute("aria-label", `Nom du magasin « ${st.name} »`);
       sec.querySelector(".grip").setAttribute("aria-label", `Déplacer « ${st.name} »`);
       sec.querySelector(".store-del").setAttribute("aria-label", `Supprimer le magasin « ${st.name} »`);
-      sec.querySelector(".shop-add input").setAttribute("aria-label", `Ajouter un article à « ${st.name} »`);
-      const items = st.items.filter((i) => !shopExpired(i, now));
+      const addInput = sec.querySelector(".shop-add input");
+      addInput.placeholder = usualMode ? "Ajouter un article habituel…" : "Ajouter un article…";
+      addInput.setAttribute("aria-label", `${usualMode ? "Ajouter un article habituel" : "Ajouter un article"} à « ${st.name} »`);
       const list = sec.querySelector(".list");
+      if (usualMode) {
+        const toBuy = st.items.filter((i) => !i.done && !shopExpired(i, now));
+        st.usual.forEach((item, i) => {
+          const li = itemEls.get(item.id) || makeUsualItem(item.id);
+          li.querySelector(".text").textContent = item.text;
+          const inList = toBuy.some((j) => sameText(j.text, item.text));
+          const btn = li.querySelector(".to-list");
+          btn.textContent = inList ? "Dans la liste" : "Ajouter";
+          btn.classList.toggle("in-list", inList);
+          btn.setAttribute("aria-label", inList ? `« ${item.text} » est déjà dans la liste à faire` : `Ajouter « ${item.text} » aux courses à faire`);
+          li.querySelector(".edit").setAttribute("aria-label", `Modifier « ${item.text} »`);
+          li.querySelector(".del").setAttribute("aria-label", `Retirer « ${item.text} » des articles habituels`);
+          if (list.children[i] !== li) list.insertBefore(li, list.children[i] || null);
+        });
+        const n = st.usual.length;
+        sec.querySelector(".sub-count").textContent = n ? plural(n, "article") : "";
+        return;
+      }
+      const items = st.items.filter((i) => !shopExpired(i, now));
       items.forEach((item, i) => {
         const li = itemEls.get(item.id) || makeShopItem(item.id);
         li.querySelector(".check").checked = item.done;
@@ -1587,6 +1649,17 @@
     change((s) => { s.shopping.stores.forEach((st) => { st.items = st.items.filter((i) => !shopExpired(i, now)); }); });
   }
   setInterval(() => { sweepShopping(); if (!document.hidden && viewName === "courses") render(); }, 30000);
+  // The usual-articles list has no checkbox; Alt+arrows move from its text row too.
+  els.stores.addEventListener("keydown", (e) => {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    const btn = e.target.closest(".item.usual button");
+    if (!btn) return;
+    e.preventDefault();
+    const id = btn.closest(".item").dataset.id;
+    moveShopItem(id, e.key === "ArrowUp" ? -1 : 1);
+    const again = els.stores.querySelector(`.item[data-id="${id}"] .to-list`);
+    if (again) again.focus();
+  });
 
   function setShopDone(id, checked) {
     const now = new Date().toISOString();
@@ -1597,29 +1670,42 @@
       if (checked) f.item.doneAt = now; else delete f.item.doneAt;
     });
   }
-  function addShopItem(storeId, text) {
+  function addShopItem(storeId, text, field = "items") {
     const id = newId();
     change((s) => {
       const st = s.shopping.stores.find((x) => x.id === storeId);
-      if (st) st.items.push({ id, text, done: false });
+      if (st) st[field].push(field === "items" ? { id, text, done: false } : { id, text });
     });
   }
-  function removeShopItem(id) {
-    const f = findShop(state, id);
+  // From "Courses habituelles": put an article on the to-buy list of the same store.
+  function addUsualToList(usualId) {
+    const f = findShop(state, usualId, "usual");
+    if (!f) return;
+    const { store: st, item } = f;
+    if (st.items.some((i) => !i.done && !shopExpired(i) && sameText(i.text, item.text))) {
+      showToast(`« ${short(item.text)} » est déjà dans les courses à faire`);
+      return;
+    }
+    addShopItem(st.id, item.text, "items");
+    showToast(`« ${short(item.text)} » ajouté aux courses à faire (${short(st.name)})`);
+  }
+  function removeShopItem(id, field = "items") {
+    const f = findShop(state, id, field);
     if (!f) return;
     const storeId = f.store.id, index = f.index, item = clone(f.item);
-    change((s) => { const g = findShop(s, id); if (g) g.store.items.splice(g.index, 1); });
-    showToast(`« ${short(item.text)} » supprimé`, () => {
+    change((s) => { const g = findShop(s, id, field); if (g) g.store[field].splice(g.index, 1); });
+    const what = field === "usual" ? "retiré des articles habituels" : "supprimé";
+    showToast(`« ${short(item.text)} » ${what}`, () => {
       change((s) => {
-        if (findShop(s, id)) return;
+        if (findShop(s, id, field)) return;
         const st = s.shopping.stores.find((x) => x.id === storeId) || s.shopping.stores[0];
-        if (st) st.items.splice(Math.min(index, st.items.length), 0, item);
+        if (st) st[field].splice(Math.min(index, st[field].length), 0, item);
       });
     });
   }
   function addStore() {
     const id = newId();
-    change((s) => { s.shopping.stores.push({ id, name: "Nouveau magasin", items: [] }); });
+    change((s) => { s.shopping.stores.push({ id, name: "Nouveau magasin", items: [], usual: [] }); });
     const input = document.getElementById(`store-${id}`);
     if (input) { input.focus(); input.select(); }
   }
@@ -1636,8 +1722,9 @@
     const st = clone(state.shopping.stores[index]);
     change((s) => { s.shopping.stores = s.shopping.stores.filter((x) => x.id !== id); });
     els.addStore.focus();
-    const detail = st.items.length ? ` et ses ${plural(st.items.length, "article")}` : "";
-    showToast(`Magasin « ${short(st.name)} »${detail} supprimé${st.items.length ? "s" : ""}`, () => {
+    const count = st.items.length + st.usual.length;
+    const detail = count ? ` et ses ${plural(count, "article")}` : "";
+    showToast(`Magasin « ${short(st.name)} »${detail} supprimé${count ? "s" : ""}`, () => {
       change((s) => { if (!s.shopping.stores.some((x) => x.id === id)) s.shopping.stores.splice(Math.min(index, s.shopping.stores.length), 0, st); });
     });
   }
@@ -1653,20 +1740,22 @@
   }
   // One step; past the first or last row it hops into the neighbouring store.
   function moveShopItem(id, delta) {
+    const field = shopField();
     change((s) => {
-      const f = findShop(s, id);
+      const f = findShop(s, id, field);
       if (!f) return;
       const si = s.shopping.stores.indexOf(f.store);
-      f.store.items.splice(f.index, 1);
+      const list = f.store[field];
+      list.splice(f.index, 1);
       const to = f.index + delta;
       if (to < 0) {
         const prev = s.shopping.stores[si - 1];
-        if (prev) prev.items.push(f.item); else f.store.items.splice(f.index, 0, f.item);
-      } else if (to > f.store.items.length) {
+        if (prev) prev[field].push(f.item); else list.splice(f.index, 0, f.item);
+      } else if (to > list.length) {
         const next = s.shopping.stores[si + 1];
-        if (next) next.items.unshift(f.item); else f.store.items.splice(f.index, 0, f.item);
+        if (next) next[field].unshift(f.item); else list.splice(f.index, 0, f.item);
       } else {
-        f.store.items.splice(to, 0, f.item);
+        list.splice(to, 0, f.item);
       }
     });
     const cb = els.stores.querySelector(`.item[data-id="${id}"] .check`);
@@ -1674,10 +1763,11 @@
   }
   // After a drag and drop: rebuild stores and items from the page. Hidden (expired) items stay put.
   function commitShopOrder() {
+    const field = shopField();
     const order = [...els.stores.children].map((sec) => ({ id: sec.dataset.id, items: [...sec.querySelectorAll(".item")].map((li) => li.dataset.id) }));
     change((s) => {
       const storesById = new Map(s.shopping.stores.map((st) => [st.id, st]));
-      const itemsById = new Map(s.shopping.stores.flatMap((st) => st.items).map((i) => [i.id, i]));
+      const itemsById = new Map(s.shopping.stores.flatMap((st) => st[field]).map((i) => [i.id, i]));
       const placed = new Set();
       const next = [];
       for (const o of order) {
@@ -1685,12 +1775,12 @@
         if (!st) continue;
         const its = o.items.map((id) => itemsById.get(id)).filter((i) => i && !placed.has(i.id));
         its.forEach((i) => placed.add(i.id));
-        next.push({ ...st, items: its });
+        next.push({ ...st, [field]: its });
       }
       for (const st of s.shopping.stores) {
         let target = next.find((x) => x.id === st.id);
-        if (!target) { target = { ...st, items: [] }; next.push(target); }
-        st.items.forEach((i) => { if (!placed.has(i.id)) { target.items.push(i); placed.add(i.id); } });
+        if (!target) { target = { ...st, [field]: [] }; next.push(target); }
+        st[field].forEach((i) => { if (!placed.has(i.id)) { target[field].push(i); placed.add(i.id); } });
       }
       s.shopping.stores = next;
     });
@@ -1698,8 +1788,8 @@
 
   const shopEdit = {
     root: () => els.stores,
-    text: (id) => { const f = findShop(state, id); return f ? f.item.text : null; },
-    save: (id, text) => change((s) => { const f = findShop(s, id); if (f) f.item.text = text; }),
+    text: (id) => { const f = findShop(state, id, shopField()); return f ? f.item.text : null; },
+    save: (id, text) => { const field = shopField(); change((s) => { const f = findShop(s, id, field); if (f) f.item.text = text; }); },
   };
 
   els.addStore.addEventListener("click", addStore);
@@ -1716,13 +1806,15 @@
     const input = form.querySelector("input");
     const text = input.value.replace(/\s+/g, " ").trim();
     if (!text) { input.focus(); return; }
-    addShopItem(form.closest(".store").dataset.id, text.slice(0, 200));
+    addShopItem(form.closest(".store").dataset.id, text.slice(0, 200), shopField());
     input.value = "";
     input.focus();
   });
   els.stores.addEventListener("click", (e) => {
+    const toList = e.target.closest(".to-list");
+    if (toList) { if (!toList.classList.contains("in-list")) addUsualToList(toList.closest(".item").dataset.id); return; }
     const del = e.target.closest(".del");
-    if (del) { removeShopItem(del.closest(".item").dataset.id); return; }
+    if (del) { removeShopItem(del.closest(".item").dataset.id, shopField()); return; }
     const edit = e.target.closest(".edit");
     if (edit) { startEdit(edit.closest(".item"), shopEdit); return; }
     const sdel = e.target.closest(".store-del");

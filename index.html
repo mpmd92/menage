@@ -259,6 +259,23 @@
   .add-store:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .shop-empty { margin: 0; color: var(--muted); font-size: .95rem; }
   .item.usual .row { cursor: default; }
+  /* Quantity of an article to buy: a pill after its name */
+  .qty {
+    flex: none; font: inherit; font-size: .8rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+    max-width: 10rem; overflow: hidden; text-overflow: ellipsis;
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink);
+    transition: border-color .15s, opacity .15s;
+  }
+  .qty:hover { border-color: var(--accent); }
+  .qty.empty { color: var(--muted); background: none; border-style: dashed; opacity: 0; }
+  .item:hover .qty.empty, .qty.empty:focus-visible { opacity: 1; }
+  @media (hover: none) { .qty.empty { opacity: .75; } }
+  .qty:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .qty-input {
+    flex: none; width: 9rem; font: inherit; font-size: .85rem; color: var(--ink); padding: 4px 10px;
+    border: 1.5px solid var(--accent); border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); outline: none;
+  }
+  .item.editing .qty, .item.editing .qty-input { display: none; }
   .to-list {
     flex: none; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; white-space: nowrap;
     padding: 5px 12px; border: 1px solid var(--accent); border-radius: 999px; background: none; color: var(--accent);
@@ -411,6 +428,14 @@
     <img id="partyGif" alt="">
   </div>
 </div>
+
+<datalist id="qtyHints">
+  <option value="1"></option><option value="2"></option><option value="3"></option>
+  <option value="1 paquet"></option><option value="2 paquets"></option>
+  <option value="1 L"></option><option value="2 L"></option><option value="6 bouteilles"></option>
+  <option value="250 g"></option><option value="500 g"></option><option value="1 kg"></option>
+  <option value="1 boîte"></option><option value="1 douzaine"></option>
+</datalist>
 
 <div class="ask" id="ask" role="dialog" aria-labelledby="askTitle" hidden>
   <p class="ask-title" id="askTitle"></p>
@@ -565,6 +590,7 @@
           .filter((i) => i && typeof i.text === "string")
           .map((i) => {
             const it = { id: okId(i.id), text: i.text.slice(0, 200), done: !!i.done };
+            if (typeof i.qty === "string" && i.qty.trim()) it.qty = i.qty.replace(/\s+/g, " ").trim().slice(0, 30);
             if (it.done) it.doneAt = okDate(i.doneAt);
             return it;
           }),
@@ -1373,7 +1399,7 @@
     }
     for (const st of state.shopping.stores) {
       lines.push("", `## Courses · ${st.name}`);
-      st.items.filter((i) => !shopExpired(i)).forEach((i) => lines.push(`- [${i.done ? "x" : " "}] ${i.text}`));
+      st.items.filter((i) => !shopExpired(i)).forEach((i) => lines.push(`- [${i.done ? "x" : " "}] ${i.text}${i.qty ? ` × ${i.qty}` : ""}`));
       if (st.usual.length) {
         lines.push("", `## Courses habituelles · ${st.name}`);
         st.usual.forEach((i) => lines.push(`- ${i.text}`));
@@ -1455,7 +1481,13 @@
         if (!t) continue;
         const done = !!sm && sm[1] !== " ";
         if (shopTarget === "usual") shopCur.usual.push({ id: newId() + "u" + count, text: t });
-        else shopCur.items.push(done ? { id: newId() + "i" + count, text: t, done, doneAt: now } : { id: newId() + "i" + count, text: t, done });
+        else {
+          const qm = t.match(/^(.+?)\s+×\s+(.+)$/);
+          const it = { id: newId() + "i" + count, text: qm ? qm[1] : t, done };
+          if (qm) it.qty = qm[2].slice(0, 30);
+          if (done) it.doneAt = now;
+          shopCur.items.push(it);
+        }
         if (++count >= MAX_ITEMS) break;
         continue;
       }
@@ -1573,6 +1605,7 @@
     li.innerHTML =
       `<span class="item-grip" aria-hidden="true">${GRIP_SVG}</span>` +
       '<label class="row"><input type="checkbox" class="check"><span class="txt"><span class="text"></span><span class="last" hidden></span></span></label>' +
+      '<button type="button" class="qty empty"></button>' +
       `<button type="button" class="edit">${PEN_SVG}</button>` +
       `<button type="button" class="del">${X_SVG}</button>`;
     return li;
@@ -1630,6 +1663,12 @@
         if (item.done && item.doneAt) {
           const left = Math.ceil((Date.parse(item.doneAt) + SHOP_TTL - now) / 60000);
           last.textContent = left > 1 ? `Retiré dans ${left} min` : "Retiré dans moins d'une minute";
+        }
+        const qty = li.querySelector(".qty");
+        if (qty) {
+          qty.textContent = item.qty || "+ Qté";
+          qty.classList.toggle("empty", !item.qty);
+          qty.setAttribute("aria-label", item.qty ? `Quantité de « ${item.text} » : ${item.qty}. Modifier` : `Indiquer une quantité pour « ${item.text} »`);
         }
         li.querySelector(".edit").setAttribute("aria-label", `Modifier « ${item.text} »`);
         li.querySelector(".del").setAttribute("aria-label", `Supprimer « ${item.text} »`);
@@ -1786,6 +1825,54 @@
     });
   }
 
+  // Quantity: free text ("2 paquets", "1,5 L", "500 g"). Enter or leaving saves, Escape cancels, empty removes.
+  function editQty(li) {
+    const id = li.dataset.id;
+    const f = findShop(state, id);
+    if (!f || li.querySelector(".qty-input")) return;
+    if (finishActiveEdit) finishActiveEdit(true);
+    const btn = li.querySelector(".qty");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "qty-input";
+    input.maxLength = 30;
+    input.value = f.item.qty || "";
+    input.placeholder = "ex. 2 paquets";
+    input.setAttribute("list", "qtyHints");
+    input.setAttribute("aria-label", `Quantité de « ${f.item.text} »`);
+    btn.hidden = true;
+    li.draggable = false;
+    btn.after(input);
+    input.focus();
+    input.select();
+    let finished = false;
+    const finish = (save) => {
+      if (finished) return;
+      finished = true;
+      finishActiveEdit = null;
+      const value = input.value.replace(/\s+/g, " ").trim().slice(0, 30);
+      const hadFocus = document.activeElement === input;
+      input.remove();
+      btn.hidden = false;
+      li.draggable = true;
+      if (save && value !== (f.item.qty || "")) {
+        change((s) => {
+          const g = findShop(s, id);
+          if (!g) return;
+          if (value) g.item.qty = value; else delete g.item.qty;
+        });
+      }
+      if (hadFocus) { const b = els.stores.querySelector(`.item[data-id="${id}"] .qty`); if (b) b.focus(); }
+    };
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+    finishActiveEdit = finish;
+  }
+
   const shopEdit = {
     root: () => els.stores,
     text: (id) => { const f = findShop(state, id, shopField()); return f ? f.item.text : null; },
@@ -1811,6 +1898,8 @@
     input.focus();
   });
   els.stores.addEventListener("click", (e) => {
+    const qty = e.target.closest(".qty");
+    if (qty) { editQty(qty.closest(".item")); return; }
     const toList = e.target.closest(".to-list");
     if (toList) { if (!toList.classList.contains("in-list")) addUsualToList(toList.closest(".item").dataset.id); return; }
     const del = e.target.closest(".del");

@@ -1,6 +1,6 @@
-# Ménage
+# Vie de couple
 
-Liste des tâches ménagères de Paul et Marguerite, partagée en ligne.
+Tâches ménagères et listes de courses de Paul et Marguerite, partagées en ligne.
 
 - **Page** : `index.html`, publiée avec GitHub Pages.
 - **Données** : un Worker Cloudflare (`worker/`) garde la liste dans un Durable Object.
@@ -12,7 +12,9 @@ Liste des tâches ménagères de Paul et Marguerite, partagée en ligne.
 
 Chaque personne a quatre sous-listes : hebdomadaire, mensuelle, tous les 3 mois, tous les ans.
 Quand toutes les tâches d'une sous-liste sont cochées, elle se décoche et compte un cycle.
-Chaque tâche garde la date de la dernière fois où elle a été faite.
+Chaque tâche garde la date de la dernière fois où elle a été faite, et sa durée.
+
+L'onglet Courses a une sous-liste par magasin. Un article coché est supprimé une heure plus tard.
 
 ## Déployer le Worker
 

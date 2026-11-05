@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="only light">
-<title>Ménage</title>
+<title>Vie de couple</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15.5L16 5l12 10.5M8 12.5V27h16V12.5' fill='none' stroke='%233E9B5F' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -225,6 +225,41 @@
   }
   .toast button:focus-visible { outline: 2px solid var(--toast-link); }
 
+  /* Shopping: one card per store */
+  .shop { display: flex; flex-direction: column; gap: 14px; }
+  .stores { display: flex; flex-direction: column; gap: 14px; }
+  .store.dragging { opacity: .45; }
+  .store-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 8px 4px; border-bottom: 1px solid var(--line); }
+  .grip {
+    flex: none; width: 28px; height: 34px; border: 0; border-radius: 6px; background: none;
+    color: var(--muted); display: grid; place-items: center; cursor: grab; opacity: .5; transition: opacity .15s;
+  }
+  .store:hover .grip, .grip:focus-visible { opacity: 1; }
+  .grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .store-name {
+    flex: 1; min-width: 0; font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em;
+    color: var(--ink); background: transparent; border: 1.5px solid transparent; border-radius: 8px; padding: 4px 8px;
+    text-overflow: ellipsis;
+  }
+  .store-name:hover { border-color: var(--line); }
+  .store-name:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .store-del {
+    flex: none; width: 38px; height: 38px; border: 0; border-radius: 8px; background: none; color: var(--muted);
+    display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .15s, color .15s, background-color .15s;
+  }
+  .store-head:hover .store-del, .store-del:focus-visible { opacity: 1; }
+  .store-del:hover { color: var(--danger); background: var(--bg); }
+  .store-del:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (hover: none) { .store-del { opacity: .75; } .grip { opacity: 1; } }
+  .add-store {
+    font: inherit; font-weight: 600; color: var(--accent); text-align: left; cursor: pointer;
+    background: none; border: 1.5px dashed var(--line); border-radius: 14px; padding: 13px 16px; transition: border-color .15s;
+  }
+  .add-store:hover { border-color: var(--accent); }
+  .add-store:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .shop-empty { margin: 0; color: var(--muted); font-size: .95rem; }
+  .shop-empty strong { color: var(--ink); font-weight: 600; }
+
   /* "Combien de temps ?" panel, shown after each check */
   .ask {
     position: fixed; z-index: 3; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px));
@@ -300,20 +335,27 @@
 
 <main class="app" id="app" hidden>
   <header class="head">
-    <h1>Ménage</h1>
+    <h1>Vie de couple</h1>
     <div class="tabs" role="group" aria-label="Affichage">
       <button type="button" class="tab" data-view="paul" aria-pressed="true">Paul</button>
       <button type="button" class="tab" data-view="marguerite" aria-pressed="false">Marguerite</button>
       <button type="button" class="tab" data-view="all" aria-pressed="false">Vue globale</button>
+      <button type="button" class="tab" data-view="courses" aria-pressed="false">Courses</button>
     </div>
     <p class="sr-only" id="announce" aria-live="polite"></p>
   </header>
 
   <div class="cols" id="cols"></div>
 
+  <div class="shop" id="shop" hidden>
+    <div class="stores" id="stores"></div>
+    <p class="shop-empty" id="shopEmpty" hidden><strong>Aucun magasin pour l'instant.</strong> Créez-en un pour commencer, par exemple « Marché » ou « Monoprix ».</p>
+    <button type="button" class="add-store" id="addStore">+ Nouveau magasin</button>
+  </div>
+
   <div class="tools">
     <div class="list-actions">
-      <button type="button" class="ghost quiet" id="resetBtn">Réinitialiser tout</button>
+      <button type="button" class="ghost quiet" id="resetBtn">Réinitialiser les tâches</button>
       <button type="button" class="ghost quiet" id="lockBtn">Verrouiller cet appareil</button>
     </div>
     <div class="file-actions">
@@ -323,7 +365,7 @@
     </div>
   </div>
 
-  <p class="backup-line">
+  <p class="backup-line" id="backupLine">
     <span id="backupText">Sauvegarde en ligne à chaque tâche cochée</span>
     <button type="button" class="ghost quiet" id="backupOpen">Voir les sauvegardes</button>
   </p>
@@ -333,7 +375,7 @@
 
 <div class="gate" id="gate" hidden>
   <form class="gate-card" id="gateForm">
-    <h1>Ménage</h1>
+    <h1>Vie de couple</h1>
     <label for="gatePw">Mot de passe</label>
     <input id="gatePw" type="password" autocomplete="current-password" required>
     <p class="gate-error" id="gateError" hidden></p>
@@ -422,6 +464,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     app: $("app"), cols: $("cols"), tabs: [...document.querySelectorAll(".tab")], announce: $("announce"),
+    shop: $("shop"), stores: $("stores"), shopEmpty: $("shopEmpty"), addStore: $("addStore"), backupLine: $("backupLine"),
     reset: $("resetBtn"), lock: $("lockBtn"), save: $("saveBtn"), load: $("loadBtn"), file: $("loadFile"),
     gate: $("gate"), gateForm: $("gateForm"), gatePw: $("gatePw"), gateError: $("gateError"), gateBtn: $("gateBtn"),
     status: $("status"), toast: $("toast"), toastText: $("toastText"), toastUndo: $("toastUndo"),
@@ -501,7 +544,22 @@
         });
       lists[k] = { items, cycles: r && Number.isInteger(r.cycles) && r.cycles > 0 ? r.cycles : 0 };
     }
-    return { lists };
+    // Shopping: stores with items; a checked item keeps the time it was checked (`doneAt`).
+    const rawStores = raw && raw.shopping && Array.isArray(raw.shopping.stores) ? raw.shopping.stores : [];
+    const stores = rawStores
+      .filter((st) => st && typeof st === "object")
+      .map((st) => ({
+        id: okId(st.id),
+        name: typeof st.name === "string" && st.name.trim() ? st.name.slice(0, 60) : "Magasin",
+        items: (Array.isArray(st.items) ? st.items : [])
+          .filter((i) => i && typeof i.text === "string")
+          .map((i) => {
+            const it = { id: okId(i.id), text: i.text.slice(0, 200), done: !!i.done };
+            if (it.done) it.doneAt = okDate(i.doneAt);
+            return it;
+          }),
+      }));
+    return { lists, shopping: { stores } };
   }
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -599,7 +657,7 @@
     return li;
   }
 
-  function render(opts) { if (!celebrating) paint(state, opts); }
+  function render(opts) { if (!celebrating) { paint(state, opts); paintShop(state); } }
 
   function paint(view, { complete = new Set(), resetting = new Set() } = {}) {
     const ids = new Set(allItems(view).map((i) => i.id));
@@ -678,7 +736,12 @@
 
   let viewName = store.get(VIEW_KEY) || "paul";
   function applyView() {
-    if (!["paul", "marguerite", "all"].includes(viewName)) viewName = "paul";
+    if (!["paul", "marguerite", "all", "courses"].includes(viewName)) viewName = "paul";
+    const shopping = viewName === "courses";
+    els.cols.hidden = shopping;
+    els.shop.hidden = !shopping;
+    els.reset.hidden = shopping;
+    els.backupLine.hidden = shopping;
     els.tabs.forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.view === viewName)));
     els.app.classList.toggle("is-wide", viewName === "all");
     els.cols.querySelectorAll(".person").forEach((col) => {
@@ -806,6 +869,7 @@
         state = clone(server.data);
         render();
       }
+      sweepShopping();
     } catch {
       setOffline(true);
     }
@@ -818,6 +882,7 @@
     els.app.hidden = false;
     render();
     loadBackups().catch(() => {});
+    sweepShopping();
   }
   function lock(message) {
     password = null;
@@ -1059,13 +1124,21 @@
 
   // Swap the task's text for a field. Enter or leaving the field saves, Escape cancels.
   let finishActiveEdit = null;
-  function startEdit(li) {
+  const choreEdit = {
+    root: () => els.cols,
+    text: (id) => { const f = findItem(state, id); return f ? f.item.text : null; },
+    save: (id, text) => change((s) => {
+      const f = findItem(s, id);
+      if (!f) return;
+      (f.item.link ? copiesOf(s, f.item.link) : [f]).forEach((c) => { c.item.text = text; });
+    }),
+  };
+  function startEdit(li, ops = choreEdit) {
     if (celebrating || li.classList.contains("editing")) return;
     if (finishActiveEdit) finishActiveEdit(true); // only one task edited at a time
     const id = li.dataset.id;
-    const found = findItem(state, id);
-    if (!found) return;
-    const original = found.item.text;
+    const original = ops.text(id);
+    if (original === null) return;
     const input = document.createElement("input");
     input.type = "text";
     input.className = "edit-input";
@@ -1088,15 +1161,9 @@
       input.remove();
       li.classList.remove("editing");
       li.draggable = true;
-      if (save && text && text !== original) {
-        change((s) => {
-          const f = findItem(s, id);
-          if (!f) return;
-          (f.item.link ? copiesOf(s, f.item.link) : [f]).forEach((c) => { c.item.text = text; });
-        });
-      }
+      if (save && text && text !== original) ops.save(id, text);
       if (hadFocus) {
-        const cb = els.cols.querySelector(`.item[data-id="${id}"] .check`);
+        const cb = ops.root().querySelector(`.item[data-id="${id}"] .check`);
         if (cb) cb.focus();
       }
     };
@@ -1278,7 +1345,7 @@
   const stamp = (d) => `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
   function backupText() {
-    const lines = [`# Ménage · sauvegarde du ${stamp(new Date())}`];
+    const lines = [`# Vie de couple · sauvegarde du ${stamp(new Date())}`];
     for (const k of KEYS) {
       const L = state.lists[k];
       lines.push("", `## ${subLabel(k)}`, `# Cycles : ${L.cycles}`);
@@ -1289,19 +1356,23 @@
         lines.push(`- [${i.done ? "x" : " "}] ${i.text}${i.link ? " (à deux)" : ""} — ${when}`);
       });
     }
+    for (const st of state.shopping.stores) {
+      lines.push("", `## Courses · ${st.name}`);
+      st.items.filter((i) => !shopExpired(i)).forEach((i) => lines.push(`- [${i.done ? "x" : " "}] ${i.text}`));
+    }
     lines.push("");
     return lines.join("\n");
   }
 
   async function saveToFile() {
     const now = new Date();
-    const name = `Ménage ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.txt`;
+    const name = `Vie de couple ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.txt`;
     const blob = new Blob([backupText()], { type: "text/plain;charset=utf-8" });
     if (typeof window.showSaveFilePicker === "function") {
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: name,
-          types: [{ description: "Sauvegarde Ménage", accept: { "text/plain": [".txt"] } }],
+          types: [{ description: "Sauvegarde Vie de couple", accept: { "text/plain": [".txt"] } }],
         });
         const w = await handle.createWritable();
         await w.write(blob);
@@ -1332,11 +1403,36 @@
     KEYS.forEach((k) => { lists[k] = { items: [], cycles: 0 }; });
     const byLabel = new Map(KEYS.map((k) => [norm(subLabel(k)), k]));
     let cur = null, count = 0, found = false;
+    let shopCur = null, shopping = null; // "## Courses · Store" sections, when the file has any
+    const now = new Date().toISOString();
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
       if (!line) continue;
       const heading = line.match(/^##\s+(.+)$/);
-      if (heading) { cur = byLabel.get(norm(heading[1])) || null; continue; }
+      if (heading) {
+        const shop = heading[1].match(/^courses\s*[·:–—-]\s*(.+)$/i);
+        if (shop) {
+          shopping = shopping || { stores: [] };
+          shopCur = { id: newId() + "s" + shopping.stores.length, name: shop[1].trim().slice(0, 60), items: [] };
+          shopping.stores.push(shopCur);
+          cur = null;
+          found = true;
+        } else {
+          shopCur = null;
+          cur = byLabel.get(norm(heading[1])) || null;
+        }
+        continue;
+      }
+      if (shopCur) {
+        if (line.startsWith("#")) continue;
+        const sm = line.match(/^[-*]\s*\[([ xX])\]\s*(.+)$/);
+        const t = (sm ? sm[2] : line.replace(/^[-*]\s+/, "")).replace(/\s+/g, " ").trim().slice(0, 200);
+        if (!t) continue;
+        const done = !!sm && sm[1] !== " ";
+        shopCur.items.push(done ? { id: newId() + "i" + count, text: t, done, doneAt: now } : { id: newId() + "i" + count, text: t, done });
+        if (++count >= MAX_ITEMS) break;
+        continue;
+      }
       const cyc = line.match(/^#\s*Cycles\s*:\s*(\d+)/i);
       if (cyc) { if (cur) { lists[cur].cycles = Math.min(Number(cyc[1]), 1e9); found = true; } continue; }
       if (line.startsWith("#") || !cur) continue;
@@ -1377,20 +1473,335 @@
       });
       [a, b].forEach((L) => L.items.forEach((i) => { delete i.shared; }));
     });
-    return { lists };
+    return { lists, shopping };
   }
 
   async function loadFromFile(file) {
     let text;
     try { text = await file.text(); } catch { showToast("Impossible de lire ce fichier."); return; }
     const parsed = parseBackup(text);
-    if (!parsed) { showToast("Ce fichier ne contient aucune tâche de Ménage."); return; }
+    if (!parsed) { showToast("Ce fichier ne contient ni tâche ni liste de courses."); return; }
     await backupNow("Avant l'import d'un fichier");
     const before = clone(state);
     const n = KEYS.reduce((sum, k) => sum + parsed.lists[k].items.length, 0);
-    change((s) => { s.lists = parsed.lists; });
-    showToast(`Fichier importé : ${plural(n, "tâche")}`, () => { change((s) => { s.lists = before.lists; }); });
+    // A file without shopping sections leaves the shopping lists as they are.
+    change((s) => { s.lists = parsed.lists; if (parsed.shopping) s.shopping = parsed.shopping; });
+    const shopNote = parsed.shopping ? `, ${plural(parsed.shopping.stores.length, "magasin")}` : "";
+    showToast(`Fichier importé : ${plural(n, "tâche")}${shopNote}`, () => {
+      change((s) => { s.lists = before.lists; s.shopping = before.shopping; });
+    });
   }
+
+  /* ---------- Shopping ---------- */
+
+  // Shared by both people. A checked item is removed one hour after it was checked:
+  // it is hidden at once when the hour is up, and whichever page is open deletes it.
+  const SHOP_TTL = 60 * 60 * 1000;
+  const shopExpired = (i, now = Date.now()) => i.done && !!i.doneAt && now - Date.parse(i.doneAt) >= SHOP_TTL;
+  function findShop(s, id) {
+    for (const st of s.shopping.stores) {
+      const index = st.items.findIndex((i) => i.id === id);
+      if (index >= 0) return { store: st, index, item: st.items[index] };
+    }
+    return null;
+  }
+
+  function makeStore(id) {
+    const sec = document.createElement("section");
+    sec.className = "sub store";
+    sec.dataset.id = id;
+    sec.innerHTML =
+      '<header class="store-head">' +
+        `<button type="button" class="grip" title="Glisser pour déplacer (ou flèches haut/bas)">${GRIP_SVG}</button>` +
+        `<input class="store-name" id="store-${id}" type="text" maxlength="60" autocomplete="off" spellcheck="false">` +
+        '<span class="sub-count"></span>' +
+        `<button type="button" class="store-del">${X_SVG}</button>` +
+      '</header>' +
+      '<ul class="list"></ul>' +
+      '<form class="sub-add shop-add" autocomplete="off">' +
+        '<span class="plus" aria-hidden="true">+</span>' +
+        `<input id="shop-add-${id}" type="text" maxlength="200" placeholder="Ajouter un article…">` +
+      '</form>';
+    return sec;
+  }
+  function makeShopItem(id) {
+    const li = document.createElement("li");
+    li.className = "item";
+    li.dataset.id = id;
+    li.draggable = true;
+    li.innerHTML =
+      `<span class="item-grip" aria-hidden="true">${GRIP_SVG}</span>` +
+      '<label class="row"><input type="checkbox" class="check"><span class="txt"><span class="text"></span><span class="last" hidden></span></span></label>' +
+      `<button type="button" class="edit">${PEN_SVG}</button>` +
+      `<button type="button" class="del">${X_SVG}</button>`;
+    return li;
+  }
+
+  function paintShop(view) {
+    const now = Date.now();
+    const stores = view.shopping.stores;
+    const storeIds = new Set(stores.map((st) => st.id));
+    [...els.stores.children].forEach((sec) => { if (!storeIds.has(sec.dataset.id)) sec.remove(); });
+    const visible = new Set(stores.flatMap((st) => st.items.filter((i) => !shopExpired(i, now)).map((i) => i.id)));
+    const itemEls = new Map();
+    els.stores.querySelectorAll(".item").forEach((li) => {
+      if (visible.has(li.dataset.id)) itemEls.set(li.dataset.id, li); else li.remove();
+    });
+    const secEls = new Map([...els.stores.children].map((sec) => [sec.dataset.id, sec]));
+    stores.forEach((st, si) => {
+      const sec = secEls.get(st.id) || makeStore(st.id);
+      if (els.stores.children[si] !== sec) els.stores.insertBefore(sec, els.stores.children[si] || null);
+      const name = sec.querySelector(".store-name");
+      if (document.activeElement !== name) name.value = st.name;
+      name.setAttribute("aria-label", `Nom du magasin « ${st.name} »`);
+      sec.querySelector(".grip").setAttribute("aria-label", `Déplacer « ${st.name} »`);
+      sec.querySelector(".store-del").setAttribute("aria-label", `Supprimer le magasin « ${st.name} »`);
+      sec.querySelector(".shop-add input").setAttribute("aria-label", `Ajouter un article à « ${st.name} »`);
+      const items = st.items.filter((i) => !shopExpired(i, now));
+      const list = sec.querySelector(".list");
+      items.forEach((item, i) => {
+        const li = itemEls.get(item.id) || makeShopItem(item.id);
+        li.querySelector(".check").checked = item.done;
+        li.querySelector(".text").textContent = item.text;
+        const last = li.querySelector(".last");
+        last.hidden = !item.done || !item.doneAt;
+        if (item.done && item.doneAt) {
+          const left = Math.ceil((Date.parse(item.doneAt) + SHOP_TTL - now) / 60000);
+          last.textContent = left > 1 ? `Retiré dans ${left} min` : "Retiré dans moins d'une minute";
+        }
+        li.querySelector(".edit").setAttribute("aria-label", `Modifier « ${item.text} »`);
+        li.querySelector(".del").setAttribute("aria-label", `Supprimer « ${item.text} »`);
+        if (list.children[i] !== li) list.insertBefore(li, list.children[i] || null);
+      });
+      const done = items.filter((i) => i.done).length;
+      sec.querySelector(".sub-count").textContent = items.length ? `${done}/${items.length}` : "";
+    });
+    els.shopEmpty.hidden = stores.length > 0;
+  }
+
+  // Deletes the items checked more than an hour ago (only when there are some).
+  function sweepShopping() {
+    if (!password) return;
+    const now = Date.now();
+    if (!state.shopping.stores.some((st) => st.items.some((i) => shopExpired(i, now)))) return;
+    change((s) => { s.shopping.stores.forEach((st) => { st.items = st.items.filter((i) => !shopExpired(i, now)); }); });
+  }
+  setInterval(() => { sweepShopping(); if (!document.hidden && viewName === "courses") render(); }, 30000);
+
+  function setShopDone(id, checked) {
+    const now = new Date().toISOString();
+    change((s) => {
+      const f = findShop(s, id);
+      if (!f) return;
+      f.item.done = checked;
+      if (checked) f.item.doneAt = now; else delete f.item.doneAt;
+    });
+  }
+  function addShopItem(storeId, text) {
+    const id = newId();
+    change((s) => {
+      const st = s.shopping.stores.find((x) => x.id === storeId);
+      if (st) st.items.push({ id, text, done: false });
+    });
+  }
+  function removeShopItem(id) {
+    const f = findShop(state, id);
+    if (!f) return;
+    const storeId = f.store.id, index = f.index, item = clone(f.item);
+    change((s) => { const g = findShop(s, id); if (g) g.store.items.splice(g.index, 1); });
+    showToast(`« ${short(item.text)} » supprimé`, () => {
+      change((s) => {
+        if (findShop(s, id)) return;
+        const st = s.shopping.stores.find((x) => x.id === storeId) || s.shopping.stores[0];
+        if (st) st.items.splice(Math.min(index, st.items.length), 0, item);
+      });
+    });
+  }
+  function addStore() {
+    const id = newId();
+    change((s) => { s.shopping.stores.push({ id, name: "Nouveau magasin", items: [] }); });
+    const input = document.getElementById(`store-${id}`);
+    if (input) { input.focus(); input.select(); }
+  }
+  function renameStore(id, input) {
+    const st = state.shopping.stores.find((x) => x.id === id);
+    if (!st) return;
+    const name = input.value.replace(/\s+/g, " ").trim().slice(0, 60);
+    if (!name) { input.value = st.name; return; }
+    if (name !== st.name) change((s) => { const x = s.shopping.stores.find((y) => y.id === id); if (x) x.name = name; });
+  }
+  function removeStore(id) {
+    const index = state.shopping.stores.findIndex((x) => x.id === id);
+    if (index < 0) return;
+    const st = clone(state.shopping.stores[index]);
+    change((s) => { s.shopping.stores = s.shopping.stores.filter((x) => x.id !== id); });
+    els.addStore.focus();
+    const detail = st.items.length ? ` et ses ${plural(st.items.length, "article")}` : "";
+    showToast(`Magasin « ${short(st.name)} »${detail} supprimé${st.items.length ? "s" : ""}`, () => {
+      change((s) => { if (!s.shopping.stores.some((x) => x.id === id)) s.shopping.stores.splice(Math.min(index, s.shopping.stores.length), 0, st); });
+    });
+  }
+  function moveStore(id, delta) {
+    change((s) => {
+      const i = s.shopping.stores.findIndex((x) => x.id === id), j = i + delta;
+      if (i < 0 || j < 0 || j >= s.shopping.stores.length) return;
+      const [st] = s.shopping.stores.splice(i, 1);
+      s.shopping.stores.splice(j, 0, st);
+    });
+    const grip = els.stores.querySelector(`.store[data-id="${id}"] .grip`);
+    if (grip) grip.focus();
+  }
+  // One step; past the first or last row it hops into the neighbouring store.
+  function moveShopItem(id, delta) {
+    change((s) => {
+      const f = findShop(s, id);
+      if (!f) return;
+      const si = s.shopping.stores.indexOf(f.store);
+      f.store.items.splice(f.index, 1);
+      const to = f.index + delta;
+      if (to < 0) {
+        const prev = s.shopping.stores[si - 1];
+        if (prev) prev.items.push(f.item); else f.store.items.splice(f.index, 0, f.item);
+      } else if (to > f.store.items.length) {
+        const next = s.shopping.stores[si + 1];
+        if (next) next.items.unshift(f.item); else f.store.items.splice(f.index, 0, f.item);
+      } else {
+        f.store.items.splice(to, 0, f.item);
+      }
+    });
+    const cb = els.stores.querySelector(`.item[data-id="${id}"] .check`);
+    if (cb) cb.focus();
+  }
+  // After a drag and drop: rebuild stores and items from the page. Hidden (expired) items stay put.
+  function commitShopOrder() {
+    const order = [...els.stores.children].map((sec) => ({ id: sec.dataset.id, items: [...sec.querySelectorAll(".item")].map((li) => li.dataset.id) }));
+    change((s) => {
+      const storesById = new Map(s.shopping.stores.map((st) => [st.id, st]));
+      const itemsById = new Map(s.shopping.stores.flatMap((st) => st.items).map((i) => [i.id, i]));
+      const placed = new Set();
+      const next = [];
+      for (const o of order) {
+        const st = storesById.get(o.id);
+        if (!st) continue;
+        const its = o.items.map((id) => itemsById.get(id)).filter((i) => i && !placed.has(i.id));
+        its.forEach((i) => placed.add(i.id));
+        next.push({ ...st, items: its });
+      }
+      for (const st of s.shopping.stores) {
+        let target = next.find((x) => x.id === st.id);
+        if (!target) { target = { ...st, items: [] }; next.push(target); }
+        st.items.forEach((i) => { if (!placed.has(i.id)) { target.items.push(i); placed.add(i.id); } });
+      }
+      s.shopping.stores = next;
+    });
+  }
+
+  const shopEdit = {
+    root: () => els.stores,
+    text: (id) => { const f = findShop(state, id); return f ? f.item.text : null; },
+    save: (id, text) => change((s) => { const f = findShop(s, id); if (f) f.item.text = text; }),
+  };
+
+  els.addStore.addEventListener("click", addStore);
+  els.stores.addEventListener("change", (e) => {
+    const cb = e.target.closest(".check");
+    if (cb) { setShopDone(cb.closest(".item").dataset.id, cb.checked); return; }
+    const name = e.target.closest(".store-name");
+    if (name) renameStore(name.closest(".store").dataset.id, name);
+  });
+  els.stores.addEventListener("submit", (e) => {
+    const form = e.target.closest(".shop-add");
+    if (!form) return;
+    e.preventDefault();
+    const input = form.querySelector("input");
+    const text = input.value.replace(/\s+/g, " ").trim();
+    if (!text) { input.focus(); return; }
+    addShopItem(form.closest(".store").dataset.id, text.slice(0, 200));
+    input.value = "";
+    input.focus();
+  });
+  els.stores.addEventListener("click", (e) => {
+    const del = e.target.closest(".del");
+    if (del) { removeShopItem(del.closest(".item").dataset.id); return; }
+    const edit = e.target.closest(".edit");
+    if (edit) { startEdit(edit.closest(".item"), shopEdit); return; }
+    const sdel = e.target.closest(".store-del");
+    if (sdel) removeStore(sdel.closest(".store").dataset.id);
+  });
+  els.stores.addEventListener("keydown", (e) => {
+    const name = e.target.closest(".store-name");
+    if (name) {
+      if (e.key === "Enter") { e.preventDefault(); name.blur(); }
+      if (e.key === "Escape") {
+        const st = state.shopping.stores.find((x) => x.id === name.closest(".store").dataset.id);
+        if (st) name.value = st.name;
+        name.blur();
+      }
+      return;
+    }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const up = e.key === "ArrowUp";
+    const grip = e.target.closest(".grip");
+    if (grip) { e.preventDefault(); moveStore(grip.closest(".store").dataset.id, up ? -1 : 1); return; }
+    const cb = e.target.closest(".check");
+    if (cb && e.altKey) { e.preventDefault(); moveShopItem(cb.closest(".item").dataset.id, up ? -1 : 1); }
+  });
+
+  // Drag and drop: items between stores; a store only while its grip is held.
+  let shopDrag = null;
+  const shopNextByY = (container, selector, y) => {
+    for (const el of container.children) {
+      if (el === shopDrag.el || !el.matches(selector)) continue;
+      const r = el.getBoundingClientRect();
+      if (y < r.top + r.height / 2) return el;
+    }
+    return null;
+  };
+  els.stores.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest(".grip");
+    if (grip) grip.closest(".store").draggable = true;
+  });
+  document.addEventListener("pointerup", () => {
+    if (!shopDrag) els.stores.querySelectorAll(".store[draggable='true']").forEach((sec) => { sec.draggable = false; });
+  });
+  els.stores.addEventListener("dragstart", (e) => {
+    const t = e.target;
+    if (t.classList && t.classList.contains("item")) shopDrag = { type: "item", el: t, dropped: false };
+    else if (t.classList && t.classList.contains("store")) shopDrag = { type: "store", el: t, dropped: false };
+    else return;
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", ""); } catch {}
+    if (shopDrag.type === "item") document.body.classList.add("dragging-item");
+    const el = shopDrag.el;
+    requestAnimationFrame(() => el.classList.add("dragging"));
+  });
+  els.stores.addEventListener("dragover", (e) => {
+    if (!shopDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (shopDrag.type === "item") {
+      const sec = e.target.closest(".store");
+      if (!sec) return;
+      const list = sec.querySelector(".list");
+      const before = shopNextByY(list, ".item", e.clientY);
+      if (before) { if (shopDrag.el.nextElementSibling !== before) list.insertBefore(shopDrag.el, before); }
+      else if (list.lastElementChild !== shopDrag.el) list.append(shopDrag.el);
+    } else {
+      const before = shopNextByY(els.stores, ".store", e.clientY);
+      if (before) { if (shopDrag.el.nextElementSibling !== before) els.stores.insertBefore(shopDrag.el, before); }
+      else if (els.stores.lastElementChild !== shopDrag.el) els.stores.append(shopDrag.el);
+    }
+  });
+  els.stores.addEventListener("drop", (e) => { if (shopDrag) { e.preventDefault(); shopDrag.dropped = true; } });
+  document.addEventListener("dragend", () => {
+    if (!shopDrag) return;
+    const d = shopDrag;
+    shopDrag = null;
+    d.el.classList.remove("dragging");
+    if (d.type === "store") d.el.draggable = false;
+    document.body.classList.remove("dragging-item");
+    if (d.dropped) commitShopOrder(); else render();
+  });
 
   /* ---------- Online backups ---------- */
 
@@ -1582,14 +1993,14 @@
   function disarmReset() {
     resetArmed = false;
     clearTimeout(resetTimer);
-    els.reset.textContent = "Réinitialiser tout";
+    els.reset.textContent = "Réinitialiser les tâches";
     els.reset.classList.remove("is-armed");
   }
   els.reset.addEventListener("click", async () => {
     if (celebrating) return;
     if (!resetArmed) {
       resetArmed = true;
-      els.reset.textContent = "Confirmer : tout supprimer pour Paul et Marguerite";
+      els.reset.textContent = "Confirmer : supprimer toutes les tâches de Paul et Marguerite";
       els.reset.classList.add("is-armed");
       resetTimer = setTimeout(disarmReset, 4000);
       return;

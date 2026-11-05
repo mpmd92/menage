@@ -67,6 +67,7 @@ export class MenageStore extends DurableObject {
     if (baseVersion !== current) return { ok: false, current: this.read() };
     const version = current + 1;
     const now = new Date().toISOString();
+    dataText = keepMissingParts(row ? row.data : null, dataText);
     if (row) {
       sql.exec("INSERT OR REPLACE INTO history (version, data, updated_at) VALUES (?, ?, ?)", row.version, row.data, row.updated_at);
     }
@@ -108,6 +109,22 @@ export class MenageStore extends DurableObject {
   snapshot(version) {
     const row = this.ctx.storage.sql.exec("SELECT version, data, updated_at FROM history WHERE version = ?", version).toArray()[0];
     return row ? { version: row.version, data: JSON.parse(row.data), updatedAt: row.updated_at } : null;
+  }
+}
+
+// A page that predates a part of the list (an older tab still open, say) leaves that part out
+// of what it sends. Keep the stored version of any top-level part it did not send.
+function keepMissingParts(currentText, incomingText) {
+  if (!currentText) return incomingText;
+  try {
+    const current = JSON.parse(currentText), incoming = JSON.parse(incomingText);
+    let added = false;
+    for (const key of Object.keys(current)) {
+      if (!(key in incoming)) { incoming[key] = current[key]; added = true; }
+    }
+    return added ? JSON.stringify(incoming) : incomingText;
+  } catch {
+    return incomingText;
   }
 }
 

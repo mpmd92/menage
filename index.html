@@ -472,7 +472,7 @@
   const PW_KEY = "menage:pw";
   const CACHE_KEY = "menage:cache";
   const VIEW_KEY = "menage:view";
-  const POLL_MS = 15000;
+  const POLL_MS = 5000;
   const MAX_ITEMS = 1000;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -1272,6 +1272,10 @@
   // (which also keeps "il y a 3 j" current).
   setInterval(() => { if (!document.hidden) pull(); }, POLL_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { render(); pull(); } });
+  // Phones often resume a page without a visibility change: fetch again on these too.
+  window.addEventListener("focus", () => pull());
+  window.addEventListener("pageshow", () => pull());
+  window.addEventListener("online", () => { push(); pull(); });
 
   /* ---------- Celebration ---------- */
 
